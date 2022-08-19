@@ -1,0 +1,12 @@
+.vscode/
+wandb/
+**/__pycache__
+simulations/
+conda/
+.Rhistory
+results/
+deprecated/
+data/
+dapsm/
+conda-env/
+**/*.ps1
