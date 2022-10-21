@@ -1,0 +1,8 @@
+ksize: 13
+nonlinear: true
+nplots: 3
+nsims: 10
+output_dir: simulations/nonlinear
+seed: 110104
+spatial: false
+verbose: true
