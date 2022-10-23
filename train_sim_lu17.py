@@ -56,13 +56,24 @@ def main(args: argparse.Namespace):
     logging.basicConfig(level=logging.INFO)
     method = args.method
     sim = args.sim
-    output_dir = f"{args.output}/{args.task}/embeddings/{method}/{sim:03d}"
+    output_dir = f"{args.output}/lu17/embedludings/{method}/{sim:03d}"
     if not os.path.exists(output_dir):
         os.makedirs(output_dir, exist_ok=True)
 
     # utils.set_seed(args.seed)
     pl.seed_everything(args.seed)
     dir = f"{args.sims_dir}"
+
+    # read datase
+    data = np.load("data_simstudy")
+    PM = data['monthly_PM']
+    prec = data['prec']
+    T = data['T']
+    RH = data['RH']
+    u0 = data['u0']
+    v0 = data['v0']
+    lon = data[['lon']]
+    lat = data['lat']
 
     # simulation data and metadata
     dtrain = dict(np.load(join(dir, args.task, f"{sim:03d}_train.npz")))
