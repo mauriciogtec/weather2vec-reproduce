@@ -1,13 +1,12 @@
-from re import M
-from tkinter import N
 import numpy as np
 import torch
 from torch import nn
 import torch.nn.functional as F
 from torch import Tensor
-from typing import Callable, Optional, List
+from typing import Optional
 from timm.models.layers import trunc_normal_
-
+import pytorch_lightning as pls
+        
 
 class LayerNorm(nn.Module):
     r""" LayerNorm that supports two data formats: channels_last (default) or channels_first. 
@@ -42,12 +41,6 @@ def conv_block(
     batchnorm_type: str = "bn",
     **kwargs
 ):
-    if batchnorm_type == "bn":
-        bn_fun = lambda x: nn.BatchNorm2d(x, eps=1e-2)
-    elif batchnorm_type == "frn":
-        bn_fun = lambda x: FRN(x)
-    else:
-        raise NotImplementedError(f"batchnorm_type {batchnorm_type} not implemented")
 
     if not depthwise:
         d1 = din // 4 if bottleneck else din
@@ -57,12 +50,12 @@ def conv_block(
         mods = []
         mods.append(nn.Conv2d(d1, dout, k, **kwargs))
         if batchnorm:
-            mods.append(bn_fun(dout))
+            mods.append(make_batchnorm(dout, batchnorm_type))
         mods.append(act())
         if bottleneck:
             blayer = [nn.Conv2d(din, din // 4, 1, bias=(not batchnorm))]
             if batchnorm:
-                blayer.append(LayerNorm(din // 4, eps=1e-2))
+                blayer.append(make_batchnorm(din // 4, batchnorm_type))
             mods = mods + blayer
     elif separable:
         kwargs = kwargs.copy()
@@ -83,23 +76,23 @@ def conv_block(
             nn.Conv2d(din, dout, 1, **kwargs3),
         ]
         if batchnorm:
-            mods.append(bn_fun(dout))
+            mods.append(make_batchnorm(dout, batchnorm_type))
         mods.append(act())
     else:
         kwargs = kwargs.copy()
         kwargs2 = kwargs.copy()
         kwargs["groups"] = din
-        kwargs["padding"] = k//2
+        kwargs["padding"] = "same"
         kwargs["bias"] = True
         kwargs2["groups"] = 1
-        kwargs2["padding"] = 0
+        kwargs2["padding"] = "same"
         kwargs2["bias"] = True  # 
         mods = [
             nn.Conv2d(din, din, (k, k), **kwargs),
             nn.Conv2d(din, dout, 1, **kwargs2)
         ]
         if batchnorm:
-            mods.append(bn_fun(dout))
+            mods.append(make_batchnorm(dout, batchnorm_type))
         mods.append(act())
     mod = nn.Sequential(*mods)
     return mod
@@ -166,7 +159,7 @@ class res_layers(nn.Module):
         super().__init__()
         kwargs = kwargs.copy()
         self.convs = nn.ModuleList(
-            [conv_block(d, d, k, padding=k//2, batchnorm=True, act=nn.Identity) for _ in range(n)]
+            [conv_block(d, d, k, padding="same", batchnorm=True, act=nn.Identity) for _ in range(n)]
         )
         self.acts = nn.ModuleList([act() for _ in range(n)])
 
@@ -204,6 +197,17 @@ class up_layer(nn.Module):
         return x
 
 
+def make_batchnorm(dim, type):
+    if type == "bn":
+        return nn.BatchNorm2d(dim, eps=1e-2)
+    elif type == "frn":
+        return FRN(dim)
+    elif type == "layer":
+        return LayerNorm(dim)
+    else:
+        raise NotImplementedError
+            
+
 class UNetEncoder(nn.Module):
     def __init__(
         self,
@@ -222,6 +226,7 @@ class UNetEncoder(nn.Module):
         separable: bool = False,
         batchnorm: bool = False,
         batchnorm_type: str = "bn",
+        final_act: bool = False
     ) -> None:
         super().__init__()
         self.cin = cin
@@ -240,7 +245,7 @@ class UNetEncoder(nn.Module):
         kwargs = dict(
             bias=True,
             groups=groups,
-            padding=k // 2,
+            padding="same",
             padding_mode="replicate",
             bottleneck=bottleneck,
             depthwise=depthwise,
@@ -249,14 +254,13 @@ class UNetEncoder(nn.Module):
             batchnorm_type=batchnorm_type,
         )
 
+
         kwargs1 = kwargs.copy()
         kwargs1["groups"] = 1
         self.first = nn.Sequential(
-            nn.Conv2d(cin, d, k, padding=k//2),
-            # LayerNorm(d, eps=1e-6),
-            FRN(d, eps=1e-2),
+            nn.Conv2d(cin, d, k, padding="same"),
+            make_batchnorm(d, batchnorm_type),
             act(),
-            # conv_block(cin, d, k, act, **kwargs1),
             res_layers(d, num_res, k, act, **kwargs)
         )
 
@@ -279,7 +283,8 @@ class UNetEncoder(nn.Module):
         kwargsf["groups"] = 1
         self.final = nn.Sequential(
             res_layers(d, num_res, k, act, **kwargs),
-            nn.Conv2d(d, cout, k, padding=k//2)
+            nn.Conv2d(d, cout, k, padding="same"),
+            nn.SiLU() if final_act else nn.Identity()
             # conv_block(d, cout, k, **kwargsf)
         )
         self.apply(self._init_weights)
@@ -365,12 +370,6 @@ class Decoder(nn.Module):
         L = self(C)
         if len(L.shape) == 0:
             L = torch.ones_like(tgt) * L
-        # L = L.clip(-5.0, 5.0)
-        # loss = torch.where(
-        #     L >= 0.0,
-        #     torch.log(1.0 + torch.exp(-L)) + (1.0 - tgt) * L,
-        #     torch.log(1.0 + torch.exp(L)) - tgt * L,
-        # )
         loss = F.binary_cross_entropy_with_logits(L, tgt, reduction='none')
         loss = (loss * M).sum() / tgt.shape[0]
         return L, loss
@@ -451,7 +450,7 @@ class GMRF(nn.Module):
         self.log_var = nn.Parameter(torch.tensor(0.0), requires_grad=fit_scale)
 
     def forward(self):
-        out = torch.sqrt(self.log_var.exp()) + self.W.unsqueeze(0)
+        out = torch.sqrt(self.log_var.exp()) * self.W.unsqueeze(0)
         return out
 
     def penalty(self, alph: float = 1.0, beta: float = 1.0, lam: float = 1.0):
@@ -505,7 +504,7 @@ class SpatialReg(nn.Module):
             self.net = nn.Parameter(torch.tensor(0.0))
         elif conv_only:
             ksize = mkw.get('ksize', 3)
-            self.net = nn.Conv2d(nd, 1, ksize, padding=ksize//2)
+            self.net = nn.Conv2d(nd, 1, ksize, padding="same")
         elif local:
             self.net = ResLocalMLP(nd, 1, **mkw)
         else:
@@ -526,7 +525,7 @@ class SpatialReg(nn.Module):
         tgt: Tensor,
         C: Optional[Tensor] = None,
         M: Optional[Tensor] = None,
-    ):
+):
         if M is None:
             M = torch.ones_like(tgt)
         L = self(C)

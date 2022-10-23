@@ -38,6 +38,8 @@ python generate_simdata.py --verbose --output_dir=simulations/basic --ksize=13 -
 python generate_simdata.py --verbose --output_dir=simulations/nonlinear --ksize=13 --nsims=10 --nonlinear
 ```
 
+For convenience, the simulations output are also on the branch `data_branch` of the repository.
+
 
 ### Results
 ```bash

@@ -7,7 +7,7 @@ import torch
 from torch import nn, optim
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
-from models import UNetEncoder, Decoder, MeanOnlyDecoder
+from unet import UNetEncoder, Decoder, MeanOnlyDecoder
 from torch.optim.lr_scheduler import LinearLR
 import matplotlib.pyplot as plt
 

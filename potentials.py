@@ -2,9 +2,9 @@ import numpy as np
 import cv2
 from scipy import signal
 from itertools import product as prod
-import scipy
-import networkx as nx
-from scipy import sparse
+# import scipy
+# import networkx as nx
+# from scipy import sparse
 
 
 def sample_gp2d(

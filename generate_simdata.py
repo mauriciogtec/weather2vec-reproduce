@@ -9,6 +9,10 @@ import matplotlib.pyplot as plt
 import yaml
 from tqdm import tqdm
 from utils import set_seed
+from itertools import product as prod
+import cv2
+from scipy import signal
+import potentials
 
 
 def sample_gp2d(

@@ -5,7 +5,7 @@ from torch import nn, optim
 from torch.nn.modules import batchnorm
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
-from models import UNetEncoder, Decoder
+from unet import UNetEncoder, Decoder
 from torch.optim.lr_scheduler import LinearLR
 import matplotlib.pyplot as plt
 import proplot as pplt
