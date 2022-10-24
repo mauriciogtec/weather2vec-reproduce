@@ -24,29 +24,29 @@ class CAE(pl.LightningModule):
         self.Svmeans = deque(maxlen=500)
         self.input_shape = input_shape
         self.encoded_shape = np.array(input_shape[-2:]) // (2**depth)
-        self.encoded_dim = dh * 2**(depth - 1)
+        self.encoded_dim = dh * 2**depth
         self.latent_size = self.encoded_dim * np.prod(self.encoded_shape)
         q = factor
         din = input_shape[1]
 
-        def down_block(din_, dout_, k_):
+        def down_block(din_, dout_, k_, pool=True, act=True, bn=True):
             return nn.Sequential(
                 nn.Conv2d(din_, dout_, k_, padding='same'),
-                nn.SiLU(),
-                make_batchnorm(dout_, 'frn'),
-                nn.MaxPool2d(2, 2, 0),
+                nn.SiLU() if act else nn.Identity(),
+                make_batchnorm(dout_, 'frn') if bn else nn.Identity(),
+                nn.AvgPool2d(2, 2, 0) if pool else nn.Identity(),
             )
         
-        def up_block(din_, dout_, k_):
+        def up_block(din_, dout_, k_, act=True, bn=True):
             return nn.Sequential(
                 nn.ConvTranspose2d(din_, dout_, k_, stride=2),
-                nn.SiLU(),
-                make_batchnorm(dout_, 'frn'),
+                nn.SiLU() if act else nn.Identity(),
+                make_batchnorm(dout_, 'frn') if bn else nn.Identity(),
             )
 
         self.down_net = nn.Sequential(
-            down_block(din, dh, k),
-            *[down_block(dh * q**i, dh * q**(i + 1), k) for i in range(depth - 1)]
+            down_block(din, dh, k, pool=False),
+            *[down_block(dh * q**i, dh * q**(i + 1), k) for i in range(depth)]
         )
 
         if self.vae:
@@ -54,15 +54,12 @@ class CAE(pl.LightningModule):
         else:
             self.fc = nn.Linear(self.latent_size, dlat)
         self.fc_transpose = nn.Sequential(
-            nn.SiLU(),
-            nn.Linear(dlat, self.latent_size),
-            nn.SiLU(),
+            nn.SiLU(), nn.Linear(dlat, self.latent_size), nn.SiLU(),
         )
         self.up_net = nn.Sequential(
-            *[up_block(dh * q**(i + 1), dh * q**i, k) for i in reversed(range(depth - 1))],
-            up_block(dh, din, k),
+            *[up_block(dh * q**(i + 1), dh * q**i, k) for i in reversed(range(depth))],
+            down_block(dh, din, k, act=False, bn=False, pool=False),
         )
-
 
     def reparameterize(self, mu, logvar, sample=True):
         sig = torch.exp(torch.clip(0.5 * logvar, -10.0, 5.0)) * float(sample)
@@ -170,7 +167,9 @@ class UNetSelfLearner(pl.LightningModule):
             depth=depth,
             ksize=k,
             num_res=0,
+            pool='AvgPool2d',
             batchnorm_type="frn",
+            batchnorm=True
         )
         self.predec = nn.Sequential(nn.SiLU(), make_batchnorm(dlat, 'frn'))
         self.dec = models.Decoder(dlat, din, n_hidden=16, offset=True)
@@ -224,7 +223,7 @@ class ResNetSelfLearner(pl.LightningModule):
         self.lr = lr
         self.SE, self.SEv, self.SS, self.SSv = 0.0, 0.0, 0.0, 0.0
 
-        def make_block(din_, dout_, k_, act=True):
+        def make_block(din_, dout_, k_, act=True,):
             return nn.Sequential(
                 nn.Conv2d(din_, dout_, k_, padding='same'),
                 nn.SiLU() if act else nn.Identity(),
@@ -413,7 +412,8 @@ class UNetClassifier(pl.LightningModule):
             depth=depth,
             ksize=k,
             num_res=0,
-            batchnorm_type="frn"
+            batchnorm_type="frn",
+            batchnorm=True
         )
 
     def forward(self, inputs):
@@ -589,6 +589,7 @@ class UNetCARClassifier(pl.LightningModule):
             depth=depth,
             ksize=k,
             num_res=0,
+            pool='AvgPool2d',
             batchnorm_type="frn"
         )
         self.car = models.GMRF(nr, nc, intercept=False)

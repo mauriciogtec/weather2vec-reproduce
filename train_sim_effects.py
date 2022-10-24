@@ -18,7 +18,8 @@ def main(args: argparse.Namespace):
     logging.basicConfig(level=logging.INFO)
     method = args.method
     sim = args.sim
-    if args.sparse: args.weight_decay = 0.01  # override
+    args.weight_decay = 0.01 
+
     subtask = "effects_sparse" if args.sparse else "effects"
     output_dir = f"{args.embsdir}/{args.task}/{subtask}/{method}/{sim:03d}"
     if not os.path.exists(output_dir):
@@ -122,7 +123,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", type=int, default=1234)
     parser.add_argument("--lr", type=float, default=0.1)
-    parser.add_argument("--weight_decay", type=float, default=0.0)
     parser.add_argument("--patience", type=int, default=0)
     parser.add_argument("--sim", type=int, default=0)
     parser.add_argument("--embsdir", type=str, default="results-sim")
