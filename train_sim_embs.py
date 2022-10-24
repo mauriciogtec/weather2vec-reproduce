@@ -123,7 +123,7 @@ def main(args: argparse.Namespace):
         elif method == "unet":
             model = baselines.UNetSelfLearner(nd, depth=2, dh=8, dlat=args.d, **kwargs)
         elif method == "resnet":
-            model = baselines.ResNetSelfLearner(nd, depth=ksize//2, dh=8, dlat=args.d, **kwargs)
+            model = baselines.ResNetSelfLearner(nd, dh=8, depth=7, k=3, dlat=args.d, **kwargs)
 
         if method in ("crae", "cvae"):
             dl_train = TensorDataset(torch.FloatTensor(patches))
@@ -179,7 +179,7 @@ if __name__ == "__main__":
     avail_methods = ["unet", "tsne", "pca", "crae", "cvae", "resnet"]
     parser.add_argument("--method", type=str, default="crae", choices=avail_methods)
     parser.add_argument("--silent", default=True, dest="verbose", action="store_false")
-    parser.add_argument("--epochs", type=int, default=1000)
+    parser.add_argument("--epochs", type=int, default=300)
     args = parser.parse_args()
 
     if args.method in ("unet", "resnet"):

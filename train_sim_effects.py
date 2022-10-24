@@ -18,8 +18,7 @@ def main(args: argparse.Namespace):
     logging.basicConfig(level=logging.INFO)
     method = args.method
     sim = args.sim
-    args.weight_decay = 0.01 
-
+    args.weight_decay = 1e-3 if args.sparse else 0.0
     subtask = "effects_sparse" if args.sparse else "effects"
     output_dir = f"{args.embsdir}/{args.task}/{subtask}/{method}/{sim:03d}"
     if not os.path.exists(output_dir):
@@ -52,7 +51,7 @@ def main(args: argparse.Namespace):
     elif method == "unet_sup_car":
         model = baselines.UNetCARClassifier(nr, nc, nd, depth=2, dh=4, k=3, **vars(args))
     elif method == "resnet_sup":
-        model = baselines.ResNetClassifier(nd, depth=ksize//2, dh=12, k=3, **vars(args))
+        model = baselines.ResNetClassifier(nd, depth=6, dh=12, k=3, **vars(args))
     elif method == "car":
         model = baselines.CARClassifier(nr, nc, **vars(args))
     else:
@@ -61,7 +60,7 @@ def main(args: argparse.Namespace):
             Ctestavg = utils.nbrs_avg(Ctest[None], ksize//2, 1).squeeze(0)
             C = torch.cat([C, Cavg], 0)
             Ctest = torch.cat([Ctest, Ctestavg], 0)
-        elif method in ("unet", "tsne", "pca", "crae", "cvae"):
+        elif method in ("unet", "tsne", "pca", "crae", "cvae", "resnet"):
             embfile = f"{args.embsdir}/{args.task}/embeddings/{method}/{sim:03d}/embs.npy"
             C = torch.FloatTensor(np.load(embfile))
             # C = torch.cat([C, A[None]], 0) # debug
@@ -98,7 +97,8 @@ def main(args: argparse.Namespace):
         devices=1,
         enable_progress_bar=args.verbose,
         max_epochs=args.epochs,
-        logger=CSVLogger(logsdir, name=f"{sim:003d}", version="")
+        logger=CSVLogger(logsdir, name=f"{sim:003d}", version=""),
+        auto_lr_find=True
     )
     trainer.fit(model, train_dataloaders=dl_train, val_dataloaders=dl_val)
     
@@ -111,9 +111,10 @@ def main(args: argparse.Namespace):
         Y1 = (wts * Y * A).sum() / (wts * A).sum()
         Y0 = (wts * Y * (1.0 - A)).sum() / (wts * (1 - A)).sum()
 
-        effect_estimate = float((Y1 - Y0).item())
+    effect_estimate = float((Y1 - Y0).item())
     ate_error = float(effect_estimate - dtrain['effect_size'])
     effects = dict(effect_estimate=effect_estimate, ate_error=ate_error)
+    
     with open(f"{output_dir}/effect.yaml", "w") as io:
         yaml.dump(effects, io)
     logging.info(effects)
@@ -128,14 +129,13 @@ if __name__ == "__main__":
     parser.add_argument("--embsdir", type=str, default="results-sim")
     parser.add_argument("--dir", type=str, default="simulations")
     parser.add_argument("--task", type=str, default="nonlinear")
-    parser.add_argument("--d", type=int, default=2)
     parser.add_argument("--num_workers", type=int, default=4)
     avail_methods = ["tsne", "pca", "crae", "cvae", "unet_sup", "unet_sup_car",
                      "resnet_sup", "wx", "unet", "local", "avg", "car", "resnet"]
     parser.add_argument("--method", type=str, default="pca", choices=avail_methods)
     parser.add_argument("--silent", default=True, dest="verbose", action="store_false")
     parser.add_argument("--sparse", default=False, action="store_true")
-    parser.add_argument("--epochs", type=int, default=2000)
+    parser.add_argument("--epochs", type=int, default=1000)
     args = parser.parse_args()
 
     main(args)

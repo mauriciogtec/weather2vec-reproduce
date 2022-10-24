@@ -1,10 +1,11 @@
 from collections import deque
-from operator import ixor
+
+import numpy as np
+from scipy import stats
 import torch
 from torch import nn
 import torch.nn.functional as F
 import pytorch_lightning as pl
-import numpy as np
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torchmetrics.functional import precision_recall
 
@@ -286,11 +287,12 @@ class ResNetSelfLearner(pl.LightningModule):
 
 
 class FFNGridClassifier(pl.LightningModule):
-    def __init__(self, din, dh, lr=0.001, depth=3, patience=0, **kwargs):
+    def __init__(self, din, dh, lr=0.001, depth=3, patience=0, weight_decay=0.0, **kwargs):
         super().__init__()
         self.save_hyperparameters()
         self.din = din
         self.lr = lr
+        self.wd = weight_decay
         self.patience = patience
         def make_block(din_, dout_, act=True):
             return nn.Sequential(
@@ -334,7 +336,7 @@ class FFNGridClassifier(pl.LightningModule):
         return loss
 
     def configure_optimizers(self):
-        opt = torch.optim.SGD(self.parameters(), lr=self.lr, momentum=0.9)
+        opt = torch.optim.SGD(self.parameters(), lr=self.lr, momentum=0.9, weight_decay=self.wd)
         if self.patience > 0:
             sched = ReduceLROnPlateau(opt, factor=0.5, min_lr=1e-5, patience=self.patience, verbose=True, threshold=2e-3)
             return [opt], [dict(scheduler=sched, monitor='eloss')]  
@@ -343,10 +345,11 @@ class FFNGridClassifier(pl.LightningModule):
 
 
 class WXClassifier(pl.LightningModule):
-    def __init__(self, din, k, lr=0.001, patience=0, **kwargs):
+    def __init__(self, din, k, lr=0.001, patience=0, weight_decay=0.0, **kwargs):
         super().__init__()
         self.save_hyperparameters()
         self.din = din
+        self.wd = weight_decay
         self.patience = patience
         self.lr = lr
         self.k = k if isinstance(k, (tuple, list)) else (k, k)
@@ -358,7 +361,7 @@ class WXClassifier(pl.LightningModule):
     def training_step(self, batch, _):
         Z, A, M = batch
         logits = self.net(Z).squeeze(1)
-        g = self.k//2
+        # g = self.k//2
         # M = M[...,g:-g, g:-g].cpu().numpy()
         # logits, A = logits[...,g:-g, g:-g], A[...,g:-g, g:-g]
         ix = np.where(M.cpu().numpy())
@@ -375,7 +378,7 @@ class WXClassifier(pl.LightningModule):
     def validation_step(self, batch, _):
         Z, A, M = batch
         logits = self.net(Z).squeeze(1)
-        g = self.k//2
+        # g = self.k//2
         # M = M[...,g:-g, g:-g].cpu().numpy()
         # logits, A = logits[...,g:-g, g:-g], A[...,g:-g, g:-g]
         ix = np.where(M.cpu().numpy())
@@ -389,7 +392,7 @@ class WXClassifier(pl.LightningModule):
         return loss
     
     def configure_optimizers(self):
-        opt = torch.optim.SGD(self.parameters(), lr=self.lr, momentum=0.9)
+        opt = torch.optim.SGD(self.parameters(), lr=self.lr, momentum=0.9, weight_decay=self.wd)
         if self.patience > 0:
             sched = ReduceLROnPlateau(opt, factor=0.5, min_lr=1e-5, patience=self.patience, verbose=True, threshold=2e-3)
             return [opt], [dict(scheduler=sched, monitor='eloss')]  
@@ -399,11 +402,12 @@ class WXClassifier(pl.LightningModule):
 
 
 class UNetClassifier(pl.LightningModule):
-    def __init__(self, din, dh=2, depth=3, k=3, lr=0.0003, patience=0, **kwargs):
+    def __init__(self, din, dh=2, depth=3, k=3, lr=0.0003, patience=0, weight_decay=0.0, **kwargs):
         super().__init__()
         self.save_hyperparameters()
         self.patience = patience
         self.k = k
+        self.wd = weight_decay
         self.lr = lr
         self.net = models.UNetEncoder(
             cin=din,
@@ -448,7 +452,7 @@ class UNetClassifier(pl.LightningModule):
 
     def configure_optimizers(self):
         # opt = torch.optim.Adam(self.parameters(), lr=self.lr)
-        opt = torch.optim.SGD(self.parameters(), lr=self.lr, momentum=0.9)
+        opt = torch.optim.SGD(self.parameters(), lr=self.lr, momentum=0.9, weight_decay=self.wd)
         if self.patience > 0:
             sched = ReduceLROnPlateau(opt, factor=0.5, min_lr=1e-5, patience=self.patience, verbose=True, threshold=2e-3)
             return [opt], [dict(scheduler=sched, monitor='eloss')]  
@@ -457,12 +461,13 @@ class UNetClassifier(pl.LightningModule):
 
 
 class ResNetClassifier(pl.LightningModule):
-    def __init__(self, din, k, dh, depth=3, lr=0.001, patience=0, **kwargs):
+    def __init__(self, din, k, dh, depth=3, lr=0.001, patience=0, weight_decay=0.0, **kwargs):
         super().__init__()
         self.save_hyperparameters()
         self.din = din
         self.patience = patience
         self.lr = lr
+        self.wd = weight_decay
         self.k = k
 
         def make_block(din_, dout_, k_, act=True):
@@ -491,8 +496,8 @@ class ResNetClassifier(pl.LightningModule):
         Z, A, M = batch
         logits = self(Z)
         ix = np.where(M.cpu().numpy())
-        logits, A = logits[ix], A[ix]
         loss = F.binary_cross_entropy_with_logits(logits, A)
+        logits, A = logits[ix], A[ix]
         with torch.no_grad():
             Ahat = torch.where(logits > 0, torch.ones_like(logits), torch.zeros_like(logits))
             prec, recall = precision_recall(Ahat, A.long())
@@ -515,7 +520,7 @@ class ResNetClassifier(pl.LightningModule):
         return loss
     
     def configure_optimizers(self):
-        opt = torch.optim.SGD(self.parameters(), lr=self.lr, momentum=0.9)
+        opt = torch.optim.SGD(self.parameters(), lr=self.lr, momentum=0.9, weight_decay=self.wd)
         if self.patience > 0:
             sched = ReduceLROnPlateau(opt, factor=0.5, min_lr=1e-5, patience=self.patience, verbose=True, threshold=2e-3)
             return [opt], [dict(scheduler=sched, monitor='eloss')]  
@@ -524,10 +529,11 @@ class ResNetClassifier(pl.LightningModule):
 
 
 class CARClassifier(pl.LightningModule):
-    def __init__(self, nr, nc, lr=0.001, patience=0, **kwargs):
+    def __init__(self, nr, nc, lr=0.001, patience=0, weight_decay=0.0, **kwargs):
         super().__init__()
         self.save_hyperparameters()
         self.patience = patience
+        self.wd = weight_decay
         self.lr = lr
         self.net = models.GMRF(nr, nc)
 
@@ -567,7 +573,7 @@ class CARClassifier(pl.LightningModule):
     
     def configure_optimizers(self):
         # opt = torch.optim.SGD(self.parameters(), lr=self.lr, momentum=0.9)
-        opt = torch.optim.Adam(self.parameters(), lr=self.lr)
+        opt = torch.optim.Adam(self.parameters(), lr=self.lr, weight_decay=self.wd)
         if self.patience > 0:
             sched = ReduceLROnPlateau(opt, factor=0.5, min_lr=1e-5, patience=self.patience, verbose=True, threshold=2e-3)
             return [opt], [dict(scheduler=sched, monitor='eloss')]  
@@ -576,12 +582,13 @@ class CARClassifier(pl.LightningModule):
 
 
 class UNetCARClassifier(pl.LightningModule):
-    def __init__(self, nr, nc, din, dh=2, depth=3, k=3, lr=0.0003, patience=0, **kwargs):
+    def __init__(self, nr, nc, din, dh=2, depth=3, k=3, lr=0.0003, patience=0, weight_decay=0.0, **kwargs):
         super().__init__()
         self.save_hyperparameters()
         self.patience = patience
         self.k = k
         self.lr = lr
+        self.wd = weight_decay
         self.net = models.UNetEncoder(
             cin=din,
             n_hidden=dh,
@@ -629,7 +636,7 @@ class UNetCARClassifier(pl.LightningModule):
         return loss
 
     def configure_optimizers(self):
-        opt = torch.optim.SGD(self.parameters(), lr=self.lr, momentum=0.9)
+        opt = torch.optim.SGD(self.parameters(), lr=self.lr, momentum=0.9, weight_decay=self.wd)
         if self.patience > 0:
             sched = ReduceLROnPlateau(opt, factor=0.5, min_lr=1e-5, patience=self.patience, verbose=True, threshold=2e-3)
             return [opt], [dict(scheduler=sched, monitor='eloss')]  
@@ -638,36 +645,36 @@ class UNetCARClassifier(pl.LightningModule):
 
 
 class WXRegression(pl.LightningModule):
-    def __init__(self, din, k, lr=0.001, patience=0, **kwargs):
+    def __init__(self, din, k, lr=0.001, patience=0, weight_decay=0.0, **kwargs):
         super().__init__()
         self.save_hyperparameters()
         self.din = din
         self.patience = patience
+        self.wd = weight_decay
         self.lr = lr
         self.k = k if isinstance(k, (tuple, list)) else (k, k)
-        self.net = nn.Conv2d(din, 1, self.k, padding='same')
+        self.net = nn.Conv2d(din, 1, self.k, bias=True, padding='same')
 
     def forward(self, inputs):
         return self.net(inputs).squeeze(1)
     
     def training_step(self, batch, _):
         C, Y, M = batch
-        Yhat = self.net(C).squeeze(1)
+        Yhat = self(C)
+        loss = F.mse_loss(Yhat * M, Y * M)
         ix = np.where(M.cpu().numpy())
         Y, Yhat = Y[ix], Yhat[ix]
-        loss = F.mse_loss(Yhat, Y)
         self.SS += (Y - Y.mean()).pow(2).sum().item()
-
         self.SE += (Y - Yhat).pow(2).sum().item()
         self.log('eloss', loss.item(), on_epoch=True, on_step=False, prog_bar=True)
         return loss
 
     def validation_step(self, batch, _):
         C, Y, M = batch
-        Yhat = self.net(C).squeeze(1)
+        Yhat = self(C)
+        loss = F.mse_loss(Yhat * M, Y * M)
         ix = np.where(M.cpu().numpy())
         Y, Yhat = Y[ix], Yhat[ix]
-        loss = F.mse_loss(Yhat, Y)
         self.SSv += (Y - Y.mean()).pow(2).sum().item()
         self.SEv += (Y - Yhat).pow(2).sum().item()
         self.log('vloss', loss.item(), on_epoch=True, on_step=False, prog_bar=True)
@@ -690,9 +697,417 @@ class WXRegression(pl.LightningModule):
         self.log('r2', r2, on_epoch=True, on_step=False, prog_bar=True)
 
     def configure_optimizers(self):
-        opt = torch.optim.SGD(self.parameters(), lr=self.lr, momentum=0.9)
-        if self.patience > 0:
-            sched = ReduceLROnPlateau(opt, factor=0.5, min_lr=1e-5, patience=self.patience, verbose=True, threshold=2e-3)
-            return [opt], [dict(scheduler=sched, monitor='eloss')]  
-        else:
-            return opt
+        # opt = torch.optim.SGD(self.parameters(), lr=self.lr, momentum=0.9)
+        opt = torch.optim.Adam(self.parameters(), lr=self.lr, weight_decay=self.wd)
+        return opt
+
+
+class UNetRegression(pl.LightningModule):
+    def __init__(self, din, dh=2, depth=3, k=3, lr=0.0003, patience=0, weight_decay=0.0, factor=2, **kwargs):
+        super().__init__()
+        self.save_hyperparameters()
+        self.din = din
+        self.patience = patience
+        self.wd = weight_decay
+        self.lr = lr
+        self.net = models.UNetEncoder(
+            cin=din,
+            n_hidden=dh,
+            cout=1,
+            depth=depth,
+            ksize=k,
+            num_res=0,
+            batchnorm_type="frn",
+            batchnorm=True,
+            factor=factor,
+        )
+
+    def forward(self, inputs):
+        return self.net(inputs).squeeze(1)
+    
+    def training_step(self, batch, _):
+        C, Y, M = batch
+        Yhat = self(C)
+        loss = F.mse_loss(Yhat * M, Y * M)
+        ix = np.where(M.cpu().numpy())
+        Y, Yhat = Y[ix], Yhat[ix]
+        self.SS += (Y - Y.mean()).pow(2).sum().item()
+        self.SE += (Y - Yhat).pow(2).sum().item()
+        self.log('eloss', loss.item(), on_epoch=True, on_step=False, prog_bar=True)
+        return loss
+
+    def validation_step(self, batch, _):
+        C, Y, M = batch
+        Yhat = self(C)
+        loss = F.mse_loss(Yhat * M, Y * M)
+        ix = np.where(M.cpu().numpy())
+        Y, Yhat = Y[ix], Yhat[ix]
+        self.SSv += (Y - Y.mean()).pow(2).sum().item()
+        self.SEv += (Y - Yhat).pow(2).sum().item()
+        self.log('vloss', loss.item(), on_epoch=True, on_step=False, prog_bar=True)
+        return loss
+
+    def on_validation_epoch_start(self):
+        self.SEv = 0.0
+        self.SSv = 0.0
+
+    def on_train_epoch_start(self):
+        self.SE = 0.0
+        self.SS = 0.0
+
+    def on_validation_epoch_end(self):
+        vr2 = 1.0 - self.SEv / self.SSv
+        self.log('vr2', vr2, on_epoch=True, on_step=False, prog_bar=True)
+
+    def on_train_epoch_end(self):
+        r2 = 1.0 - self.SE / self.SS
+        self.log('r2', r2, on_epoch=True, on_step=False, prog_bar=True)
+
+    def configure_optimizers(self):
+        opt = torch.optim.SGD(self.parameters(), lr=self.lr, momentum=0.9, weight_decay=self.wd)
+        # opt = torch.optim.Adam(self.parameters(), lr=self.lr, weight_decay=self.wd)
+        return opt
+
+
+class CARUNetRegression(pl.LightningModule):
+    def __init__(self, nr, nc, din, dh=2, depth=3, k=3, lr=0.0003, lam=1.0, patience=0, weight_decay=0.0, **kwargs):
+        super().__init__()
+        self.save_hyperparameters()
+        self.din = din
+        self.patience = patience
+        self.wd = weight_decay
+        self.lr = lr
+        self.lam = lam
+        self.net = models.UNetEncoder(
+            cin=din,
+            n_hidden=dh,
+            cout=1,
+            depth=depth,
+            ksize=k,
+            num_res=0,
+            batchnorm_type="frn",
+            batchnorm=True
+        )
+        self.car = models.GMRF(nr, nc, fit_scale=(lam > 0.0), intercept=False)
+
+    def forward(self, inputs):
+        return self.net(inputs).squeeze(1) + self.car()
+    
+    def training_step(self, batch, _):
+        C, Y, M = batch
+        Yhat = self(C)
+        loss = F.mse_loss(Yhat * M, Y * M) + self.lam * self.car.penalty()
+        ix = np.where(M.cpu().numpy())
+        Y, Yhat = Y[ix], Yhat[ix]
+        self.SS += (Y - Y.mean()).pow(2).sum().item()
+        self.SE += (Y - Yhat).pow(2).sum().item()
+        self.log('eloss', loss.item(), on_epoch=True, on_step=False, prog_bar=True)
+        return loss
+
+    def validation_step(self, batch, _):
+        C, Y, M = batch
+        Yhat = self(C)
+        loss = F.mse_loss(Yhat * M, Y * M) + self.lam * self.car.penalty()
+        ix = np.where(M.cpu().numpy())
+        Y, Yhat = Y[ix], Yhat[ix]
+        self.SSv += (Y - Y.mean()).pow(2).sum().item()
+        self.SEv += (Y - Yhat).pow(2).sum().item()
+        self.log('vloss', loss.item(), on_epoch=True, on_step=False, prog_bar=True)
+        return loss
+
+    def on_validation_epoch_start(self):
+        self.SEv = 0.0
+        self.SSv = 0.0
+
+    def on_train_epoch_start(self):
+        self.SE = 0.0
+        self.SS = 0.0
+
+    def on_validation_epoch_end(self):
+        vr2 = 1.0 - self.SEv / self.SSv
+        self.log('vr2', vr2, on_epoch=True, on_step=False, prog_bar=True)
+
+    def on_train_epoch_end(self):
+        r2 = 1.0 - self.SE / self.SS
+        self.log('r2', r2, on_epoch=True, on_step=False, prog_bar=True)
+
+    def configure_optimizers(self):
+        # opt = torch.optim.SGD(self.parameters(), lr=self.lr, momentum=0.9, weight_decay=self.wd)
+        opt = torch.optim.Adam(self.parameters(), lr=self.lr, weight_decay=self.wd)
+        return opt
+
+
+class FFNGridRegression(pl.LightningModule):
+    def __init__(self, din, dh, lr=0.001, depth=3, patience=0, weight_decay=0.0, **kwargs):
+        super().__init__()
+        self.save_hyperparameters()
+        self.din = din
+        self.lr = lr
+        self.wd = weight_decay
+        self.patience = patience
+        def make_block(din_, dout_, act=True):
+            return nn.Sequential(
+                nn.Conv2d(din_, dout_, 1),
+                nn.SiLU() if act else nn.Identity(),
+                make_batchnorm(dout_, 'frn') if act else nn.Identity()
+            )
+        self.net = nn.Sequential(
+            make_block(din, dh if depth > 0 else 1, act=depth > 0),
+            *[make_block(dh, dh) for _ in range(depth - 1)],
+            make_block(dh, 1, act=False) if depth > 0 else nn.Identity()
+        )
+
+    def forward(self, inputs):
+        return self.net(inputs).squeeze(1)
+    
+    def training_step(self, batch, _):
+        C, Y, M = batch
+        Yhat = self(C)
+        loss = F.mse_loss(Yhat * M, Y * M)
+        ix = np.where(M.cpu().numpy())
+        Y, Yhat = Y[ix], Yhat[ix]
+        self.SS += (Y - Y.mean()).pow(2).sum().item()
+        self.SE += (Y - Yhat).pow(2).sum().item()
+        self.log('eloss', loss.item(), on_epoch=True, on_step=False, prog_bar=True)
+        return loss
+
+    def validation_step(self, batch, _):
+        C, Y, M = batch
+        Yhat = self(C)
+        loss = F.mse_loss(Yhat * M, Y * M)
+        ix = np.where(M.cpu().numpy())
+        Y, Yhat = Y[ix], Yhat[ix]
+        self.SSv += (Y - Y.mean()).pow(2).sum().item()
+        self.SEv += (Y - Yhat).pow(2).sum().item()
+        self.log('vloss', loss.item(), on_epoch=True, on_step=False, prog_bar=True)
+        return loss
+
+    def on_validation_epoch_start(self):
+        self.SEv = 0.0
+        self.SSv = 0.0
+
+    def on_train_epoch_start(self):
+        self.SE = 0.0
+        self.SS = 0.0
+
+    def on_validation_epoch_end(self):
+        vr2 = 1.0 - self.SEv / self.SSv
+        self.log('vr2', vr2, on_epoch=True, on_step=False, prog_bar=True)
+
+    def on_train_epoch_end(self):
+        r2 = 1.0 - self.SE / self.SS
+        self.log('r2', r2, on_epoch=True, on_step=False, prog_bar=True)
+
+    def configure_optimizers(self):
+        opt = torch.optim.SGD(self.parameters(), lr=self.lr, momentum=0.9, weight_decay=self.wd)
+        # opt = torch.optim.Adam(self.parameters(), lr=self.lr, weight_decay=self.wd)
+        return opt
+
+
+class NSUNetRegression(pl.LightningModule):
+    def __init__(self, nr, nc, din, dh=2, dlat=2, depth=3, k=3, lr=0.0003, patience=0, weight_decay=0.0, **kwargs):
+        super().__init__()
+        self.save_hyperparameters()
+        self.din = din
+        self.patience = patience
+        self.wd = weight_decay
+        self.lr = lr
+        self.Ymean = 0.0
+        self.net = models.UNetEncoder(
+            cin=din,
+            n_hidden=dh,
+            cout=dlat,
+            depth=depth,
+            ksize=k,
+            num_res=0,
+            batchnorm_type="frn",
+            batchnorm=True,
+            final_act=True,
+        )
+        self.beta = nn.Parameter(torch.zeros(dlat, nr, nc), requires_grad=True)
+        self.alpha = nn.Parameter(torch.zeros(nr, nc), requires_grad=True)
+
+    def forward(self, inputs):
+        return (self.net(inputs) * self.beta).sum(1) + self.alpha
+    
+    def training_step(self, batch, _):
+        C, Y, M = batch
+        Yhat = self(C)
+        loss = F.mse_loss(Yhat * M, Y * M)
+        # replicate the r2 metric of Shen et al. (2017)
+        # r2shen = compute_r2shen(Y, Yhat, M)
+        ix = np.where(M.cpu().numpy())
+        Y, Yhat = Y[ix], Yhat[ix]
+        self.Ymean = Y.mean()
+        self.SS += (Y - self.Ymean).pow(2).sum().item()
+        self.SE += (Y - Yhat).pow(2).sum().item()
+        self.log('eloss', loss.item(), on_epoch=True, on_step=False, prog_bar=True)
+        # self.log('r2shen', r2shen.item(), on_epoch=True, on_step=False, prog_bar=True)
+        return loss
+
+    def validation_step(self, batch, _):
+        C, Y, M = batch
+        Yhat = self(C)
+        loss = F.mse_loss(Yhat * M, Y * M)
+        ix = np.where(M.cpu().numpy())
+        Y, Yhat = Y[ix], Yhat[ix]
+        self.SSv += (Y - self.Ymean).pow(2).sum().item()
+        self.SEv += (Y - Yhat).pow(2).sum().item()
+        self.log('vloss', loss.item(), on_epoch=True, on_step=False, prog_bar=True)
+        return loss
+
+    def on_validation_epoch_start(self):
+        self.SEv = 0.0
+        self.SSv = 0.0
+
+    def on_train_epoch_start(self):
+        self.SE = 0.0
+        self.SS = 0.0
+
+    def on_validation_epoch_end(self):
+        vr2 = 1.0 - self.SEv / self.SSv
+        self.log('vr2', vr2, on_epoch=True, on_step=False, prog_bar=True)
+
+    def on_train_epoch_end(self):
+        r2 = 1.0 - self.SE / self.SS
+        self.log('r2', r2, on_epoch=True, on_step=False, prog_bar=True)
+
+    def configure_optimizers(self):
+        opt = torch.optim.SGD(self.parameters(), lr=self.lr, momentum=0.9, weight_decay=self.wd)
+        # opt = torch.optim.Adam(self.parameters(), lr=self.lr, weight_decay=self.wd)
+        return opt
+
+
+
+
+class NSWXRegression(pl.LightningModule):
+    def __init__(self, nr, nc, din, dlat=2, k=3, lr=0.0003, patience=0, weight_decay=0.0, **kwargs):
+        super().__init__()
+        self.save_hyperparameters()
+        self.din = din
+        self.patience = patience
+        self.wd = weight_decay
+        self.lr = lr
+        self.Ymean = 0.0
+        self.net = nn.Conv2d(din, dlat, k, padding='same')
+        self.beta = nn.Parameter(torch.zeros(dlat, nr, nc), requires_grad=True)
+        self.alpha = nn.Parameter(torch.zeros(nr, nc), requires_grad=True)
+
+    def forward(self, inputs):
+        return (self.net(inputs) * self.beta).sum(1) + self.alpha
+    
+    def training_step(self, batch, _):
+        C, Y, M = batch
+        Yhat = self(C)
+        loss = F.mse_loss(Yhat * M, Y * M)
+        M = M.cpu().numpy()
+        ix = np.where(M)
+
+        # replicate the r2 metric of Shen et al. (2017)
+        # r2shen = compute_r2shen(Y, Yhat, M)
+        Y, Yhat = Y[ix], Yhat[ix]
+        self.Ymean = Y.mean()
+        self.SS += (Y - self.Ymean).pow(2).sum().item()
+        self.SE += (Y - Yhat).pow(2).sum().item()
+        self.log('eloss', loss.item(), on_epoch=True, on_step=False, prog_bar=True)
+        # self.log('r2shen', r2shen, on_epoch=True, on_step=False, prog_bar=True)
+        return loss
+
+    def validation_step(self, batch, _):
+        C, Y, M = batch
+        Yhat = self(C)
+        loss = F.mse_loss(Yhat * M, Y * M)
+        ix = np.where(M.cpu().numpy())
+        Y, Yhat = Y[ix], Yhat[ix]
+        self.SSv += (Y - self.Ymean).pow(2).sum().item()
+        self.SEv += (Y - Yhat).pow(2).sum().item()
+        self.log('vloss', loss.item(), on_epoch=True, on_step=False, prog_bar=True)
+        return loss
+
+    def on_validation_epoch_start(self):
+        self.SEv = 0.0
+        self.SSv = 0.0
+
+    def on_train_epoch_start(self):
+        self.SE = 0.0
+        self.SS = 0.0
+
+    def on_validation_epoch_end(self):
+        vr2 = 1.0 - self.SEv / self.SSv
+        self.log('vr2', vr2, on_epoch=True, on_step=False, prog_bar=True)
+
+    def on_train_epoch_end(self):
+        r2 = 1.0 - self.SE / self.SS
+        self.log('r2', r2, on_epoch=True, on_step=False, prog_bar=True)
+
+    def configure_optimizers(self):
+        opt = torch.optim.SGD(self.parameters(), lr=self.lr, momentum=0.9, weight_decay=self.wd)
+        # opt = torch.optim.Adam(self.parameters(), lr=self.lr, weight_decay=self.wd)
+        return opt
+
+
+
+class NSLocalRegression(pl.LightningModule):
+    def __init__(self, nr, nc, din, lr=0.0003, patience=0, weight_decay=0.0, **kwargs):
+        super().__init__()
+        self.save_hyperparameters()
+        self.din = din
+        self.patience = patience
+        self.wd = weight_decay
+        self.lr = lr
+        self.Ymean = 0.0
+        self.beta = nn.Parameter(torch.zeros(din, nr, nc), requires_grad=True)
+        self.alpha = nn.Parameter(torch.zeros(nr, nc), requires_grad=True)
+
+    def forward(self, inputs):
+        return (inputs * self.beta).sum(1) + self.alpha
+    
+    def training_step(self, batch, _):
+        C, Y, M = batch
+        Yhat = self(C)
+        loss = F.mse_loss(Yhat * M, Y * M)
+        M = M.cpu().numpy()
+        ix = np.where(M)
+
+        # replicate the r2 metric of Shen et al. (2017)
+        # r2shen = compute_r2shen(Y, Yhat, M)
+        Y, Yhat = Y[ix], Yhat[ix]
+        self.Ymean = Y.mean()
+        self.SS += (Y - self.Ymean).pow(2).sum().item()
+        self.SE += (Y - Yhat).pow(2).sum().item()
+        self.log('eloss', loss.item(), on_epoch=True, on_step=False, prog_bar=True)
+        # self.log('r2shen', r2shen, on_epoch=True, on_step=False, prog_bar=True)
+        return loss
+
+    def validation_step(self, batch, _):
+        C, Y, M = batch
+        Yhat = self(C)
+        loss = F.mse_loss(Yhat * M, Y * M)
+        ix = np.where(M.cpu().numpy())
+        Y, Yhat = Y[ix], Yhat[ix]
+        self.SSv += (Y - self.Ymean).pow(2).sum().item()
+        self.SEv += (Y - Yhat).pow(2).sum().item()
+        self.log('vloss', loss.item(), on_epoch=True, on_step=False, prog_bar=True)
+        return loss
+
+    def on_validation_epoch_start(self):
+        self.SEv = 0.0
+        self.SSv = 0.0
+
+    def on_train_epoch_start(self):
+        self.SE = 0.0
+        self.SS = 0.0
+
+    def on_validation_epoch_end(self):
+        vr2 = 1.0 - self.SEv / self.SSv
+        self.log('vr2', vr2, on_epoch=True, on_step=False, prog_bar=True)
+
+    def on_train_epoch_end(self):
+        r2 = 1.0 - self.SE / self.SS
+        self.log('r2', r2, on_epoch=True, on_step=False, prog_bar=True)
+
+    def configure_optimizers(self):
+        opt = torch.optim.SGD(self.parameters(), lr=self.lr, momentum=0.9, weight_decay=self.wd)
+        # opt = torch.optim.Adam(self.parameters(), lr=self.lr, weight_decay=self.wd)
+        return opt
+

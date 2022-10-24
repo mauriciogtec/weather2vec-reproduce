@@ -1,11 +1,12 @@
 import numpy as np
+from scipy import stats
 import torch
 from torch import nn
 import torch.nn.functional as F
 from torch import Tensor
 from typing import Optional
 from timm.models.layers import trunc_normal_
-import pytorch_lightning as pls
+import pytorch_lightning as pl
         
 
 class LayerNorm(nn.Module):
@@ -170,9 +171,9 @@ class res_layers(nn.Module):
         return x
 
 
-def down_layer(d: int, k: int, act: nn.Module, num_res=0, pool=nn.MaxPool2d, **kwargs):
+def down_layer(d: int, k: int, act: nn.Module, num_res=0, pool=nn.MaxPool2d, factor: int = 2, **kwargs):
     modules = [
-        pool(2, 2, 0), conv_block(d // 2, d, k, act, **kwargs)
+        pool(2, 2, 0), conv_block(d // factor, d, k, act, **kwargs)
     ]
     if num_res > 0:
         modules.append(res_layers(d, num_res, k, act, **kwargs))
@@ -180,13 +181,14 @@ def down_layer(d: int, k: int, act: nn.Module, num_res=0, pool=nn.MaxPool2d, **k
 
 
 class up_layer(nn.Module):
-    def __init__(self, d: int, k: int, act: nn.Module, num_res=0, **kwargs):
+    def __init__(self, d: int, k: int, act: nn.Module, num_res=0, factor: int = 2, **kwargs):
         super().__init__()
         modules = []
+        self.factor = factor
         if num_res > 0:
-            modules.append(res_layers(2 * d, num_res, k, act, **kwargs))
+            modules.append(res_layers(factor * d, num_res, k, act, **kwargs))
         modules.append(nn.UpsamplingBilinear2d(scale_factor=2))
-        modules.append(conv_block(2 * d, d, k, act, **kwargs))
+        modules.append(conv_block(factor * d, d, k, act, **kwargs))
         self.net1 = nn.Sequential(*modules)
         self.net2 = conv_block(2 * d, d, k, act, **kwargs)
 
@@ -206,7 +208,7 @@ def make_batchnorm(dim, type):
         return LayerNorm(dim)
     else:
         raise NotImplementedError
-            
+
 
 class UNetEncoder(nn.Module):
     def __init__(
@@ -217,7 +219,8 @@ class UNetEncoder(nn.Module):
         depth=3,
         num_res=1,
         groups: int = 1,
-        n_hidden=16,
+        n_hidden: int = 16,
+        factor: int = 2,
         act=nn.SiLU,
         pool='MaxPool2d',
         dropout: bool = False,
@@ -252,6 +255,7 @@ class UNetEncoder(nn.Module):
             separable=separable,
             batchnorm=batchnorm,
             batchnorm_type=batchnorm_type,
+            factor=factor
         )
 
 
@@ -266,7 +270,7 @@ class UNetEncoder(nn.Module):
 
         self.down = nn.ModuleList()
         for _ in range(depth):
-            d *= 2
+            d *= factor
             layer = down_layer(d, k, act, num_res=num_res, pool=pool, **kwargs)
             self.down.append(layer)
 
@@ -275,7 +279,7 @@ class UNetEncoder(nn.Module):
 
         self.up = nn.ModuleList()
         for _ in range(depth):
-            d //= 2
+            d //= factor
             layer = up_layer(d, k, act, num_res=num_res, **kwargs)
             self.up.append(layer)
 
