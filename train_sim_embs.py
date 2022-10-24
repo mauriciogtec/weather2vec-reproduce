@@ -117,11 +117,11 @@ def main(args: argparse.Namespace):
         input_shape = list(patches.shape)
         kwargs = vars(args)
         if method == "crae":
-            model = baselines.CAE(input_shape, depth=2, dh=12, dlat=args.d, vae=False, **kwargs)
+            model = baselines.CAE(input_shape, depth=2, dh=8, dlat=args.d, vae=False, **kwargs)
         elif method == "cvae":
-            model = baselines.CAE(input_shape, depth=2, dh=12, dlat=args.d, vae=True, **kwargs)
+            model = baselines.CAE(input_shape, depth=2, dh=8, dlat=args.d, vae=True, **kwargs)
         elif method == "unet":
-            model = baselines.UNetSelfLearner(nd, depth=2, dh=4, dlat=args.d, **kwargs)
+            model = baselines.UNetSelfLearner(nd, depth=2, dh=8, dlat=args.d, **kwargs)
         elif method == "resnet":
             model = baselines.ResNetSelfLearner(nd, depth=ksize//2, dh=8, dlat=args.d, **kwargs)
 
@@ -170,7 +170,7 @@ if __name__ == "__main__":
     parser.add_argument("--lr", type=float, default=0.003)
     parser.add_argument("--patience", type=int, default=0)
     parser.add_argument("--sim", type=int, default=0)
-    parser.add_argument("--output", type=str, default="results-sim6")
+    parser.add_argument("--output", type=str, default="results-sim")
     parser.add_argument("--task", type=str, default="nonlinear")
     parser.add_argument("--sims_dir", type=str, default="simulations")
     parser.add_argument("--d", type=int, default=4)
@@ -179,7 +179,7 @@ if __name__ == "__main__":
     avail_methods = ["unet", "tsne", "pca", "crae", "cvae", "resnet"]
     parser.add_argument("--method", type=str, default="crae", choices=avail_methods)
     parser.add_argument("--silent", default=True, dest="verbose", action="store_false")
-    parser.add_argument("--epochs", type=int, default=300)
+    parser.add_argument("--epochs", type=int, default=1000)
     args = parser.parse_args()
 
     if args.method in ("unet", "resnet"):
