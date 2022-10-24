@@ -13,3 +13,4 @@ conda-env/
 nohup*
 results*
 slurm/
+datasets/

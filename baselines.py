@@ -2,6 +2,7 @@ from collections import deque
 from operator import ixor
 import torch
 from torch import nn
+import torch.nn.functional as F
 import pytorch_lightning as pl
 import numpy as np
 from torch.optim.lr_scheduler import ReduceLROnPlateau
@@ -99,7 +100,7 @@ class CAE(pl.LightningModule):
             kld_loss = -0.5 * torch.sum(1.0 + logvar - mu**2 - logvar.exp(), dim = 1).mean(0)
         else:
             kld_loss = torch.tensor(0.0).to(S.device)
-        mse_loss = nn.functional.mse_loss(S, Shat)
+        mse_loss = F.mse_loss(S, Shat)
         loss = kld_loss + mse_loss
 
         self.Smeans.append(S.mean().item())
@@ -123,7 +124,7 @@ class CAE(pl.LightningModule):
         Shat = self.up_net(Z)
         Shat = self.unpad(Shat)
 
-        mse_loss = nn.functional.mse_loss(S, Shat)
+        mse_loss = F.mse_loss(S, Shat)
         self.Svmeans.append(S.mean().item())
         self.SEv += ((S - Shat).pow(2).mean() - self.SEv).item()
         self.SSv += ((S - np.mean(self.Svmeans)).pow(2).mean() - self.SSv).item()
@@ -182,7 +183,7 @@ class UNetSelfLearner(pl.LightningModule):
         S1hat = self.dec(self.predec(self(S)), offset)
         S = S * mask
         S1 = S1 * mask
-        mse_loss = nn.functional.mse_loss(S1, S1hat)
+        mse_loss = F.mse_loss(S1, S1hat)
         S1mean = S1[np.where(mask.detach().cpu().numpy())].mean()
         self.SE += ((S1 - S1hat).pow(2).mean() - self.SE).item()
         self.SS += ((S1 - S1mean).pow(2).mean() - self.SS).item()
@@ -197,7 +198,7 @@ class UNetSelfLearner(pl.LightningModule):
 
         S = S * mask
         S1 = S1 * mask
-        mse_loss = nn.functional.mse_loss(S1, S1hat)
+        mse_loss = F.mse_loss(S1, S1hat)
         S1mean = S1[np.where(mask.detach().cpu().numpy())].mean()
         self.SEv += ((S1 - S1hat).pow(2).mean() - self.SEv).item()
         self.SSv += ((S1 - S1mean).pow(2).mean() - self.SSv).item()
@@ -253,7 +254,7 @@ class ResNetSelfLearner(pl.LightningModule):
         S1hat = self.dec(self.predec(self(S)), offset)
         S = S * mask
         S1 = S1 * mask
-        mse_loss = nn.functional.mse_loss(S1, S1hat)
+        mse_loss = F.mse_loss(S1, S1hat)
         S1mean = S1[np.where(mask.detach().cpu().numpy())].mean()
         self.SE += ((S1 - S1hat).pow(2).mean() - self.SE).item()
         self.SS += ((S1 - S1mean).pow(2).mean() - self.SS).item()
@@ -268,7 +269,7 @@ class ResNetSelfLearner(pl.LightningModule):
 
         S = S * mask
         S1 = S1 * mask
-        mse_loss = nn.functional.mse_loss(S1, S1hat)
+        mse_loss = F.mse_loss(S1, S1hat)
         S1mean = S1[np.where(mask.detach().cpu().numpy())].mean()
         self.SEv += ((S1 - S1hat).pow(2).mean() - self.SEv).item()
         self.SSv += ((S1 - S1mean).pow(2).mean() - self.SSv).item()
@@ -311,7 +312,7 @@ class FFNGridClassifier(pl.LightningModule):
         Z, A, M = batch
         logits = self.net(Z).squeeze(1)
         ix = np.where(M.cpu().numpy())
-        loss = torch.nn.functional.binary_cross_entropy_with_logits(logits[ix], A[ix])
+        loss = F.binary_cross_entropy_with_logits(logits[ix], A[ix])
         with torch.no_grad():
             Ahat = torch.where(logits > 0, torch.ones_like(logits), torch.zeros_like(logits))
             prec, recall = precision_recall(Ahat, A.long())
@@ -325,7 +326,7 @@ class FFNGridClassifier(pl.LightningModule):
         logits = self.net(Z).squeeze(1)
         ix = np.where(M.cpu().numpy())
         logits, A = logits[ix], A[ix]
-        loss = torch.nn.functional.binary_cross_entropy_with_logits(logits, A)
+        loss = F.binary_cross_entropy_with_logits(logits, A)
         Ahat = torch.where(logits > 0, torch.ones_like(logits), torch.zeros_like(logits))
         prec, recall = precision_recall(Ahat, A.long())
         self.log('vloss', loss.item(), on_epoch=True, on_step=False, prog_bar=True)
@@ -349,8 +350,8 @@ class WXClassifier(pl.LightningModule):
         self.din = din
         self.patience = patience
         self.lr = lr
-        self.k = k
-        self.net = nn.Conv2d(din, 1, k, padding='same')
+        self.k = k if isinstance(k, (tuple, list)) else (k, k)
+        self.net = nn.Conv2d(din, 1, self.k, padding='same')
 
     def forward(self, inputs):
         return self.net(inputs).squeeze(1)
@@ -363,7 +364,7 @@ class WXClassifier(pl.LightningModule):
         # logits, A = logits[...,g:-g, g:-g], A[...,g:-g, g:-g]
         ix = np.where(M.cpu().numpy())
         logits, A = logits[ix], A[ix]
-        loss = torch.nn.functional.binary_cross_entropy_with_logits(logits, A)
+        loss = F.binary_cross_entropy_with_logits(logits, A)
         with torch.no_grad():
             Ahat = torch.where(logits > 0, torch.ones_like(logits), torch.zeros_like(logits))
             prec, recall = precision_recall(Ahat, A.long())
@@ -380,7 +381,7 @@ class WXClassifier(pl.LightningModule):
         # logits, A = logits[...,g:-g, g:-g], A[...,g:-g, g:-g]
         ix = np.where(M.cpu().numpy())
         logits, A = logits[ix], A[ix]
-        loss = torch.nn.functional.binary_cross_entropy_with_logits(logits, A)
+        loss = F.binary_cross_entropy_with_logits(logits, A)
         Ahat = torch.where(logits > 0, torch.ones_like(logits), torch.zeros_like(logits))
         prec, recall = precision_recall(Ahat, A.long())
         self.log('vloss', loss.item(), on_epoch=True, on_step=False, prog_bar=True)
@@ -423,7 +424,7 @@ class UNetClassifier(pl.LightningModule):
         logits = self.net(Z).squeeze(1)
         ix = np.where(M.cpu().numpy())
         logits, A = logits[ix], A[ix]
-        loss = torch.nn.functional.binary_cross_entropy_with_logits(logits, A)
+        loss = F.binary_cross_entropy_with_logits(logits, A)
         with torch.no_grad():
             Ahat = torch.where(logits > 0, torch.ones_like(logits), torch.zeros_like(logits))
             prec, recall = precision_recall(Ahat, A.long())
@@ -437,7 +438,7 @@ class UNetClassifier(pl.LightningModule):
         logits = self.net(Z).squeeze(1)
         ix = np.where(M.cpu().numpy())
         logits, A = logits[ix], A[ix]
-        loss = torch.nn.functional.binary_cross_entropy_with_logits(logits, A)
+        loss = F.binary_cross_entropy_with_logits(logits, A)
         Ahat = torch.where(logits > 0, torch.ones_like(logits), torch.zeros_like(logits))
         prec, recall = precision_recall(Ahat, A.long())
         self.log('vloss', loss.item(), on_epoch=True, on_step=False, prog_bar=True)
@@ -491,7 +492,7 @@ class ResNetClassifier(pl.LightningModule):
         logits = self(Z)
         ix = np.where(M.cpu().numpy())
         logits, A = logits[ix], A[ix]
-        loss = torch.nn.functional.binary_cross_entropy_with_logits(logits, A)
+        loss = F.binary_cross_entropy_with_logits(logits, A)
         with torch.no_grad():
             Ahat = torch.where(logits > 0, torch.ones_like(logits), torch.zeros_like(logits))
             prec, recall = precision_recall(Ahat, A.long())
@@ -505,7 +506,7 @@ class ResNetClassifier(pl.LightningModule):
         logits = self(Z).squeeze(1)
         ix = np.where(M.cpu().numpy())
         logits, A = logits[ix], A[ix]
-        loss = torch.nn.functional.binary_cross_entropy_with_logits(logits, A)
+        loss = F.binary_cross_entropy_with_logits(logits, A)
         Ahat = torch.where(logits > 0, torch.ones_like(logits), torch.zeros_like(logits))
         prec, recall = precision_recall(Ahat, A.long())
         self.log('vloss', loss.item(), on_epoch=True, on_step=False, prog_bar=True)
@@ -539,7 +540,7 @@ class CARClassifier(pl.LightningModule):
         rloss = self.net.penalty()
         ix = np.where(M.cpu().numpy())
         logits, A = logits[ix], A[ix]
-        loss = torch.nn.functional.binary_cross_entropy_with_logits(logits, A) + 10 * rloss
+        loss = F.binary_cross_entropy_with_logits(logits, A) + 10 * rloss
         with torch.no_grad():
             Ahat = torch.where(logits > 0, torch.ones_like(logits), torch.zeros_like(logits))
             prec, recall = precision_recall(Ahat, A.long())
@@ -555,7 +556,7 @@ class CARClassifier(pl.LightningModule):
         rloss = self.net.penalty()
         ix = np.where(M.cpu().numpy())
         logits, A = logits[ix], A[ix]
-        loss = torch.nn.functional.binary_cross_entropy_with_logits(logits, A) + rloss
+        loss = F.binary_cross_entropy_with_logits(logits, A) + rloss
         Ahat = torch.where(logits > 0, torch.ones_like(logits), torch.zeros_like(logits))
         prec, recall = precision_recall(Ahat, A.long())
         self.log('vloss', loss.item(), on_epoch=True, on_step=False, prog_bar=True)
@@ -601,7 +602,7 @@ class UNetCARClassifier(pl.LightningModule):
         ix = np.where(M.cpu().numpy())
         logits, A = logits[ix], A[ix]
         rloss = self.car.penalty()
-        loss = torch.nn.functional.binary_cross_entropy_with_logits(logits, A) + rloss
+        loss = F.binary_cross_entropy_with_logits(logits, A) + rloss
         with torch.no_grad():
             Ahat = torch.where(logits > 0, torch.ones_like(logits), torch.zeros_like(logits))
             prec, recall = precision_recall(Ahat, A.long())
@@ -617,7 +618,7 @@ class UNetCARClassifier(pl.LightningModule):
         rloss = self.car.penalty()
         ix = np.where(M.cpu().numpy())
         logits, A = logits[ix], A[ix]
-        loss = torch.nn.functional.binary_cross_entropy_with_logits(logits, A) + rloss
+        loss = F.binary_cross_entropy_with_logits(logits, A) + rloss
         Ahat = torch.where(logits > 0, torch.ones_like(logits), torch.zeros_like(logits))
         prec, recall = precision_recall(Ahat, A.long())
         self.log('vloss', loss.item(), on_epoch=True, on_step=False, prog_bar=True)
@@ -625,6 +626,67 @@ class UNetCARClassifier(pl.LightningModule):
         self.log('vprec', prec.item(), on_epoch=True, on_step=False, prog_bar=True)
         self.log('vrecall', recall.item(), on_epoch=True, on_step=False, prog_bar=True)
         return loss
+
+    def configure_optimizers(self):
+        opt = torch.optim.SGD(self.parameters(), lr=self.lr, momentum=0.9)
+        if self.patience > 0:
+            sched = ReduceLROnPlateau(opt, factor=0.5, min_lr=1e-5, patience=self.patience, verbose=True, threshold=2e-3)
+            return [opt], [dict(scheduler=sched, monitor='eloss')]  
+        else:
+            return opt
+
+
+class WXRegression(pl.LightningModule):
+    def __init__(self, din, k, lr=0.001, patience=0, **kwargs):
+        super().__init__()
+        self.save_hyperparameters()
+        self.din = din
+        self.patience = patience
+        self.lr = lr
+        self.k = k if isinstance(k, (tuple, list)) else (k, k)
+        self.net = nn.Conv2d(din, 1, self.k, padding='same')
+
+    def forward(self, inputs):
+        return self.net(inputs).squeeze(1)
+    
+    def training_step(self, batch, _):
+        C, Y, M = batch
+        Yhat = self.net(C).squeeze(1)
+        ix = np.where(M.cpu().numpy())
+        Y, Yhat = Y[ix], Yhat[ix]
+        loss = F.mse_loss(Yhat, Y)
+        self.SS += (Y - Y.mean()).pow(2).sum().item()
+
+        self.SE += (Y - Yhat).pow(2).sum().item()
+        self.log('eloss', loss.item(), on_epoch=True, on_step=False, prog_bar=True)
+        return loss
+
+    def validation_step(self, batch, _):
+        C, Y, M = batch
+        Yhat = self.net(C).squeeze(1)
+        ix = np.where(M.cpu().numpy())
+        Y, Yhat = Y[ix], Yhat[ix]
+        loss = F.mse_loss(Yhat, Y)
+        self.SSv += (Y - Y.mean()).pow(2).sum().item()
+        self.SEv += (Y - Yhat).pow(2).sum().item()
+        self.log('vloss', loss.item(), on_epoch=True, on_step=False, prog_bar=True)
+        return loss
+
+    def on_validation_epoch_start(self):
+        self.SEv = 0.0
+        self.SSv = 0.0
+
+    def on_train_epoch_start(self):
+        self.SE = 0.0
+        self.SS = 0.0
+
+    def on_validation_epoch_end(self):
+        vr2 = 1.0 - self.SEv / self.SSv
+        self.log('vr2', vr2, on_epoch=True, on_step=False, prog_bar=True)
+
+    def on_train_epoch_end(self):
+        r2 = 1.0 - self.SE / self.SS
+        self.log('r2', r2, on_epoch=True, on_step=False, prog_bar=True)
 
     def configure_optimizers(self):
         opt = torch.optim.SGD(self.parameters(), lr=self.lr, momentum=0.9)
