@@ -18,7 +18,7 @@ def main(args: argparse.Namespace):
     logging.basicConfig(level=logging.INFO)
     method = args.method
     sim = args.sim
-    args.weight_decay = 1e-3 if args.sparse else 0.0
+    args.weight_decay = 1e-4 if args.sparse else 1e-6
     subtask = "effects_sparse" if args.sparse else "effects"
     output_dir = f"{args.embsdir}/{args.task}/{subtask}/{method}/{sim:03d}"
     if not os.path.exists(output_dir):
@@ -55,6 +55,7 @@ def main(args: argparse.Namespace):
     elif method == "car":
         model = baselines.CARClassifier(nr, nc, **vars(args))
     else:
+        args.lr *= 0.1
         if method == "avg":
             Cavg = utils.nbrs_avg(C[None], ksize//2, 1).squeeze(0)
             Ctestavg = utils.nbrs_avg(Ctest[None], ksize//2, 1).squeeze(0)
@@ -67,8 +68,9 @@ def main(args: argparse.Namespace):
             # C = torch.randn_like(C)  # debug
             Ctest = C  # TODO: fix this to save the real test embeddings
             Atest = A
-        dh = 8 if args.sparse else 32
-        model = baselines.FFNGridClassifier(C.shape[0], dh=dh, depth=3, **vars(args))
+        dh = 16 if args.sparse else 32
+        # de = 2 if args.sparse else 3
+        model = baselines.FFNGridClassifier(C.shape[0], dh=dh, depth=2, **vars(args))
 
     if args.sparse:
         sparse_mask = np.zeros(nr * nc, dtype=np.float32)
@@ -98,7 +100,7 @@ def main(args: argparse.Namespace):
         enable_progress_bar=args.verbose,
         max_epochs=args.epochs,
         logger=CSVLogger(logsdir, name=f"{sim:003d}", version=""),
-        auto_lr_find=True
+        auto_lr_find=False
     )
     trainer.fit(model, train_dataloaders=dl_train, val_dataloaders=dl_val)
     

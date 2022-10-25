@@ -297,7 +297,7 @@ class FFNGridClassifier(pl.LightningModule):
         def make_block(din_, dout_, act=True):
             return nn.Sequential(
                 nn.Conv2d(din_, dout_, 1),
-                nn.SiLU() if act else nn.Identity(),
+                nn.ELU() if act else nn.Identity(),
                 make_batchnorm(dout_, 'frn') if act else nn.Identity()
             )
         self.net = nn.Sequential(
@@ -770,7 +770,7 @@ class UNetRegression(pl.LightningModule):
 
 
 class CARUNetRegression(pl.LightningModule):
-    def __init__(self, nr, nc, din, dh=2, depth=3, k=3, lr=0.0003, lam=1.0, patience=0, weight_decay=0.0, **kwargs):
+    def __init__(self, nr, nc, din, dh=2, depth=3, k=3, lr=0.0003, lam=1.0, patience=0, factor=2, weight_decay=0.0, **kwargs):
         super().__init__()
         self.save_hyperparameters()
         self.din = din
@@ -778,6 +778,7 @@ class CARUNetRegression(pl.LightningModule):
         self.wd = weight_decay
         self.lr = lr
         self.lam = lam
+        self.factor = factor
         self.net = models.UNetEncoder(
             cin=din,
             n_hidden=dh,
@@ -785,6 +786,7 @@ class CARUNetRegression(pl.LightningModule):
             depth=depth,
             ksize=k,
             num_res=0,
+            factor=factor,
             batchnorm_type="frn",
             batchnorm=True
         )
@@ -905,12 +907,13 @@ class FFNGridRegression(pl.LightningModule):
 
 
 class NSUNetRegression(pl.LightningModule):
-    def __init__(self, nr, nc, din, dh=2, dlat=2, depth=3, k=3, lr=0.0003, patience=0, weight_decay=0.0, **kwargs):
+    def __init__(self, nr, nc, din, dh=2, dlat=2, depth=3, k=3, lr=0.0003, patience=0, factor=2, weight_decay=0.0, **kwargs):
         super().__init__()
         self.save_hyperparameters()
         self.din = din
         self.patience = patience
         self.wd = weight_decay
+        self.factor = factor
         self.lr = lr
         self.Ymean = 0.0
         self.net = models.UNetEncoder(
@@ -923,8 +926,9 @@ class NSUNetRegression(pl.LightningModule):
             batchnorm_type="frn",
             batchnorm=True,
             final_act=True,
+            factor=factor
         )
-        self.beta = nn.Parameter(torch.zeros(dlat, nr, nc), requires_grad=True)
+        self.beta = nn.Parameter(torch.ones(dlat, nr, nc), requires_grad=False)
         self.alpha = nn.Parameter(torch.zeros(nr, nc), requires_grad=True)
 
     def forward(self, inputs):
@@ -987,10 +991,11 @@ class NSWXRegression(pl.LightningModule):
         self.din = din
         self.patience = patience
         self.wd = weight_decay
-        self.lr = lr
+        self.lr = lr           
         self.Ymean = 0.0
-        self.net = nn.Conv2d(din, dlat, k, padding='same')
-        self.beta = nn.Parameter(torch.zeros(dlat, nr, nc), requires_grad=True)
+        self.net = nn.Conv2d(din, dlat, k, padding='same') if dlat > 0 else nn.Identity()
+        db = dlat if dlat > 0 else din
+        self.beta = 0.0 if din == 0 else nn.Parameter(torch.ones(db, nr, nc), requires_grad=True)
         self.alpha = nn.Parameter(torch.zeros(nr, nc), requires_grad=True)
 
     def forward(self, inputs):
@@ -1002,15 +1007,11 @@ class NSWXRegression(pl.LightningModule):
         loss = F.mse_loss(Yhat * M, Y * M)
         M = M.cpu().numpy()
         ix = np.where(M)
-
-        # replicate the r2 metric of Shen et al. (2017)
-        # r2shen = compute_r2shen(Y, Yhat, M)
         Y, Yhat = Y[ix], Yhat[ix]
         self.Ymean = Y.mean()
         self.SS += (Y - self.Ymean).pow(2).sum().item()
         self.SE += (Y - Yhat).pow(2).sum().item()
         self.log('eloss', loss.item(), on_epoch=True, on_step=False, prog_bar=True)
-        # self.log('r2shen', r2shen, on_epoch=True, on_step=False, prog_bar=True)
         return loss
 
     def validation_step(self, batch, _):
@@ -1044,70 +1045,3 @@ class NSWXRegression(pl.LightningModule):
         opt = torch.optim.SGD(self.parameters(), lr=self.lr, momentum=0.9, weight_decay=self.wd)
         # opt = torch.optim.Adam(self.parameters(), lr=self.lr, weight_decay=self.wd)
         return opt
-
-
-
-class NSLocalRegression(pl.LightningModule):
-    def __init__(self, nr, nc, din, lr=0.0003, patience=0, weight_decay=0.0, **kwargs):
-        super().__init__()
-        self.save_hyperparameters()
-        self.din = din
-        self.patience = patience
-        self.wd = weight_decay
-        self.lr = lr
-        self.Ymean = 0.0
-        self.beta = nn.Parameter(torch.zeros(din, nr, nc), requires_grad=True)
-        self.alpha = nn.Parameter(torch.zeros(nr, nc), requires_grad=True)
-
-    def forward(self, inputs):
-        return (inputs * self.beta).sum(1) + self.alpha
-    
-    def training_step(self, batch, _):
-        C, Y, M = batch
-        Yhat = self(C)
-        loss = F.mse_loss(Yhat * M, Y * M)
-        M = M.cpu().numpy()
-        ix = np.where(M)
-
-        # replicate the r2 metric of Shen et al. (2017)
-        # r2shen = compute_r2shen(Y, Yhat, M)
-        Y, Yhat = Y[ix], Yhat[ix]
-        self.Ymean = Y.mean()
-        self.SS += (Y - self.Ymean).pow(2).sum().item()
-        self.SE += (Y - Yhat).pow(2).sum().item()
-        self.log('eloss', loss.item(), on_epoch=True, on_step=False, prog_bar=True)
-        # self.log('r2shen', r2shen, on_epoch=True, on_step=False, prog_bar=True)
-        return loss
-
-    def validation_step(self, batch, _):
-        C, Y, M = batch
-        Yhat = self(C)
-        loss = F.mse_loss(Yhat * M, Y * M)
-        ix = np.where(M.cpu().numpy())
-        Y, Yhat = Y[ix], Yhat[ix]
-        self.SSv += (Y - self.Ymean).pow(2).sum().item()
-        self.SEv += (Y - Yhat).pow(2).sum().item()
-        self.log('vloss', loss.item(), on_epoch=True, on_step=False, prog_bar=True)
-        return loss
-
-    def on_validation_epoch_start(self):
-        self.SEv = 0.0
-        self.SSv = 0.0
-
-    def on_train_epoch_start(self):
-        self.SE = 0.0
-        self.SS = 0.0
-
-    def on_validation_epoch_end(self):
-        vr2 = 1.0 - self.SEv / self.SSv
-        self.log('vr2', vr2, on_epoch=True, on_step=False, prog_bar=True)
-
-    def on_train_epoch_end(self):
-        r2 = 1.0 - self.SE / self.SS
-        self.log('r2', r2, on_epoch=True, on_step=False, prog_bar=True)
-
-    def configure_optimizers(self):
-        opt = torch.optim.SGD(self.parameters(), lr=self.lr, momentum=0.9, weight_decay=self.wd)
-        # opt = torch.optim.Adam(self.parameters(), lr=self.lr, weight_decay=self.wd)
-        return opt
-
