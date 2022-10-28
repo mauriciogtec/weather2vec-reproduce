@@ -655,7 +655,7 @@ class WXRegression(pl.LightningModule):
         self.k = k if isinstance(k, (tuple, list)) else (k, k)
         self.net = nn.Conv2d(din, 1, self.k, bias=True, padding='same')
 
-    def forward(self, inputs):
+    def forward(self, inputs, treatment=None):
         return self.net(inputs).squeeze(1)
     
     def training_step(self, batch, _):
@@ -672,6 +672,66 @@ class WXRegression(pl.LightningModule):
     def validation_step(self, batch, _):
         C, Y, M = batch
         Yhat = self(C)
+        loss = F.mse_loss(Yhat * M, Y * M)
+        ix = np.where(M.cpu().numpy())
+        Y, Yhat = Y[ix], Yhat[ix]
+        self.SSv += (Y - Y.mean()).pow(2).sum().item()
+        self.SEv += (Y - Yhat).pow(2).sum().item()
+        self.log('vloss', loss.item(), on_epoch=True, on_step=False, prog_bar=True)
+        return loss
+
+    def on_validation_epoch_start(self):
+        self.SEv = 0.0
+        self.SSv = 0.0
+
+    def on_train_epoch_start(self):
+        self.SE = 0.0
+        self.SS = 0.0
+
+    def on_validation_epoch_end(self):
+        vr2 = 1.0 - self.SEv / self.SSv
+        self.log('vr2', vr2, on_epoch=True, on_step=False, prog_bar=True)
+
+    def on_train_epoch_end(self):
+        r2 = 1.0 - self.SE / self.SS
+        self.log('r2', r2, on_epoch=True, on_step=False, prog_bar=True)
+
+    def configure_optimizers(self):
+        # opt = torch.optim.SGD(self.parameters(), lr=self.lr, momentum=0.9)
+        opt = torch.optim.Adam(self.parameters(), lr=self.lr, weight_decay=self.wd)
+        return opt
+
+
+class CausalWXRegression(pl.LightningModule):
+    def __init__(self, din, k, lr=0.001, patience=0, weight_decay=0.0,  **kwargs):
+        super().__init__()
+        self.save_hyperparameters()
+        self.din = din
+        self.patience = patience
+        self.wd = weight_decay
+        self.lr = lr
+        self.k = k if isinstance(k, (tuple, list)) else (k, k)
+        self.net = nn.Conv2d(din, 1, self.k, bias=True, padding='same')
+        self.effect = nn.Parameter(torch.tensor(0.0), requires_grad=True)
+
+    def forward(self, C, A):
+        return self.net(C).squeeze(1) + self.effect * A
+    
+    def training_step(self, batch, _):
+        C, A, Y, M = batch
+        Yhat = self(C, A)
+        loss = F.mse_loss(Yhat * M, Y * M)
+        ix = np.where(M.cpu().numpy())
+        Y, Yhat = Y[ix], Yhat[ix]
+        self.SS += (Y - Y.mean()).pow(2).sum().item()
+        self.SE += (Y - Yhat).pow(2).sum().item()
+        self.log('eloss', loss.item(), on_epoch=True, on_step=False, prog_bar=True)
+        self.log('effect', self.effect.item(), on_epoch=True, on_step=False, prog_bar=True)
+        return loss
+
+    def validation_step(self, batch, _):
+        C, A, Y, M = batch
+        Yhat = self(C, A)
         loss = F.mse_loss(Yhat * M, Y * M)
         ix = np.where(M.cpu().numpy())
         Y, Yhat = Y[ix], Yhat[ix]
