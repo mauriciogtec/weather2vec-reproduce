@@ -59,7 +59,7 @@ Then check out the notebooks
 
 
 ### First steps
-It used to be possible to download the SO4 data automatically using Python and ftp. But as of May 2022, you will need to download it manual from [this link](https://wustl.box.com/s/wk3144jc6xfy6ujfvyv5m2yfk33nz2nn). For background see, or if the link stops working, see [https://sites.wustl.edu/acag/datasets/surface-pm2-5/](https://sites.wustl.edu/acag/datasets/surface-pm2-5/). The exact dataset we need is under `Monthly/ASCII/SO4` from the monthly `V4.NA.02` PM2.5 total mass and composition described in van Donkelaar et al. (2019).
+It used to be possible to download the SO4 data automatically using Python and ftp. But as of May 2022, you will need to download it manual from [this link](https://wustl.box.com/s/wk3144jc6xfy6ujfvyv5m2yfk33nz2nn). For background, or if the link stops working, see [https://sites.wustl.edu/acag/datasets/surface-pm2-5/](https://sites.wustl.edu/acag/datasets/surface-pm2-5/). The exact dataset needed is under `Monthly/ASCII/SO4` from the monthly `V4.NA.02` PM2.5 total mass and composition described in van Donkelaar et al. (2019). The data `.asc` files must be extracted to `data/SO4/ASCII/*`
 
 In addition, you need to manually download the Power Plant Emission Data file `AMPD_Unit_with_Sulfur_Content_and_Regulations_with_Facility_Attributes.csv` from [here](https://dataverse.harvard.edu/dataset.xhtml?persistentId=doi:10.7910/DVN/M3D2NR) and place it in the  `data/` folder.
 

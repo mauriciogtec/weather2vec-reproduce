@@ -1,5 +1,6 @@
 .vscode/
 wandb/
+*.sif
 **/__pycache__
 simulations/
 conda/

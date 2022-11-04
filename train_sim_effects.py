@@ -43,19 +43,23 @@ def main(args: argparse.Namespace):
     C, A, Y = [torch.FloatTensor(dtrain[u]) for u in names]
     Ctest, Atest, Ytest = [torch.FloatTensor(dtest[u]) for u in names]
 
+    # normalize input covariates
+    Cmeans, Cstd = C.mean((1, 2), keepdim=True), C.std((1, 2), keepdim=True)
+    C, Ctest = [(u - Cmeans) / Cstd for u in (C, Ctest)]
 
     if method == "wx":
         model = baselines.WXClassifier(nd, ksize, **vars(args))
+    if method == "causal_wx":
+        model = baselines.CausalWXRegression(nd, ksize, **vars(args))
     elif method == "unet_sup":
-        model = baselines.UNetClassifier(nd, depth=2, dh=4, k=3, **vars(args))
+        model = baselines.UNetClassifier(nd, depth=1, dh=8, k=3, **vars(args))
     elif method == "unet_sup_car":
-        model = baselines.UNetCARClassifier(nr, nc, nd, depth=2, dh=4, k=3, **vars(args))
+        model = baselines.UNetCARClassifier(nr, nc, nd, depth=1, dh=4, k=3, **vars(args))
     elif method == "resnet_sup":
         model = baselines.ResNetClassifier(nd, depth=6, dh=12, k=3, **vars(args))
     elif method == "car":
         model = baselines.CARClassifier(nr, nc, **vars(args))
     else:
-        args.lr *= 0.1
         if method == "avg":
             Cavg = utils.nbrs_avg(C[None], ksize//2, 1).squeeze(0)
             Ctestavg = utils.nbrs_avg(Ctest[None], ksize//2, 1).squeeze(0)
@@ -68,20 +72,24 @@ def main(args: argparse.Namespace):
             # C = torch.randn_like(C)  # debug
             Ctest = C  # TODO: fix this to save the real test embeddings
             Atest = A
-        dh = 16 if args.sparse else 32
-        # de = 2 if args.sparse else 3
-        model = baselines.FFNGridClassifier(C.shape[0], dh=dh, depth=2, **vars(args))
+        dh = 64 if args.sparse else 64
+        depth = 1 if args.sparse else 2
+        model = baselines.FFNGridClassifier(C.shape[0], dh=dh, depth=depth, **vars(args))
 
     if args.sparse:
         sparse_mask = np.zeros(nr * nc, dtype=np.float32)
-        sparse_mask[np.random.choice(nr * nc, 1000, replace=False)] = 1.0
+        sparse_mask[np.random.choice(nr * nc, 500, replace=False)] = 1.0
         sparse_mask = sparse_mask.reshape(nr, nc)
     else:
         sparse_mask = np.ones((nr, nc), dtype=np.float32)
     M = torch.FloatTensor(sparse_mask)
 
-    dl_train = TensorDataset(C[None], A[None], M[None])
-    dl_val = TensorDataset(Ctest[None], Atest[None], M[None])
+    if method == "causal_wx":
+        dl_train = TensorDataset(C[None], A[None], Y[None], M[None])
+        dl_val = TensorDataset(Ctest[None], Atest[None], Ytest[None], M[None])
+    else:
+        dl_train = TensorDataset(C[None], A[None], M[None])
+        dl_val = TensorDataset(Ctest[None], Atest[None], M[None])
 
     dloader_kwargs = dict(
         batch_size=1,
@@ -100,23 +108,25 @@ def main(args: argparse.Namespace):
         enable_progress_bar=args.verbose,
         max_epochs=args.epochs,
         logger=CSVLogger(logsdir, name=f"{sim:003d}", version=""),
-        auto_lr_find=False
+        auto_lr_find=args.auto_lr_find
     )
     trainer.fit(model, train_dataloaders=dl_train, val_dataloaders=dl_val)
     
-    # evaluate propensity scores and IPTW estimates
-    with torch.no_grad():
-        pscore = torch.sigmoid(torch.clip(model(C[None]), -10.0, 10.0)).view(nr, nc)
-        W = (A * M).sum() / M.sum() 
-        wts = A * (W / pscore) + (1.0 - A) * (1 - W) / (1.0 - pscore)
-        wts = wts * M
-        Y1 = (wts * Y * A).sum() / (wts * A).sum()
-        Y0 = (wts * Y * (1.0 - A)).sum() / (wts * (1 - A)).sum()
-
-    effect_estimate = float((Y1 - Y0).item())
+    # exit early for causal_wx
+    if method == "causal_wx":
+        effect_estimate = model.effect.item()
+    else:
+        # evaluate propensity scores and IPTW estimates
+        with torch.no_grad():
+            pscore = torch.sigmoid(torch.clip(model(C[None]), -10.0, 10.0)).view(nr, nc)
+            W = (A * M).sum() / M.sum() 
+            wts = A * (W / pscore) + (1.0 - A) * (1 - W) / (1.0 - pscore)
+            wts = wts * M
+            Y1 = (wts * Y * A).sum() / (wts * A).sum()
+            Y0 = (wts * Y * (1.0 - A)).sum() / (wts * (1 - A)).sum()
+        effect_estimate = float((Y1 - Y0).item())
     ate_error = float(effect_estimate - dtrain['effect_size'])
-    effects = dict(effect_estimate=effect_estimate, ate_error=ate_error)
-    
+    effects = dict(effect_estimate=effect_estimate, ate_error=ate_error, method=method, sim=sim, task=args.task)
     with open(f"{output_dir}/effect.yaml", "w") as io:
         yaml.dump(effects, io)
     logging.info(effects)
@@ -124,7 +134,7 @@ def main(args: argparse.Namespace):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--seed", type=int, default=1234)
+    parser.add_argument("--seed", type=int, default=123456)
     parser.add_argument("--lr", type=float, default=0.1)
     parser.add_argument("--patience", type=int, default=0)
     parser.add_argument("--sim", type=int, default=0)
@@ -133,11 +143,12 @@ if __name__ == "__main__":
     parser.add_argument("--task", type=str, default="nonlinear")
     parser.add_argument("--num_workers", type=int, default=4)
     avail_methods = ["tsne", "pca", "crae", "cvae", "unet_sup", "unet_sup_car",
-                     "resnet_sup", "wx", "unet", "local", "avg", "car", "resnet"]
+                     "resnet_sup", "wx", "causal_wx", "unet", "local", "avg", "car", "resnet"]
     parser.add_argument("--method", type=str, default="pca", choices=avail_methods)
     parser.add_argument("--silent", default=True, dest="verbose", action="store_false")
     parser.add_argument("--sparse", default=False, action="store_true")
-    parser.add_argument("--epochs", type=int, default=1000)
+    parser.add_argument("--manual_lr", default=True, dest="auto_lr_find", action="store_false")
+    parser.add_argument("--epochs", type=int, default=2000)
     args = parser.parse_args()
 
     main(args)

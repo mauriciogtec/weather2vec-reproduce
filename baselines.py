@@ -297,8 +297,8 @@ class FFNGridClassifier(pl.LightningModule):
         def make_block(din_, dout_, act=True):
             return nn.Sequential(
                 nn.Conv2d(din_, dout_, 1),
-                nn.ELU() if act else nn.Identity(),
-                make_batchnorm(dout_, 'frn') if act else nn.Identity()
+                nn.SiLU() if act else nn.Identity(),
+                # make_batchnorm(dout_, 'frn') if act else nn.Identity()
             )
         self.net = nn.Sequential(
             make_block(din, dh if depth > 0 else 1, act=depth > 0),
@@ -416,6 +416,7 @@ class UNetClassifier(pl.LightningModule):
             depth=depth,
             ksize=k,
             num_res=0,
+            pool='AvgPool2d',
             batchnorm_type="frn",
             batchnorm=True
         )
@@ -496,8 +497,8 @@ class ResNetClassifier(pl.LightningModule):
         Z, A, M = batch
         logits = self(Z)
         ix = np.where(M.cpu().numpy())
-        loss = F.binary_cross_entropy_with_logits(logits, A)
         logits, A = logits[ix], A[ix]
+        loss = F.binary_cross_entropy_with_logits(logits, A)
         with torch.no_grad():
             Ahat = torch.where(logits > 0, torch.ones_like(logits), torch.zeros_like(logits))
             prec, recall = precision_recall(Ahat, A.long())
@@ -785,6 +786,80 @@ class UNetRegression(pl.LightningModule):
     def forward(self, inputs):
         return self.net(inputs).squeeze(1)
     
+    def training_step(self, batch, _):
+        C, Y, M = batch
+        Yhat = self(C)
+        loss = F.mse_loss(Yhat * M, Y * M)
+        ix = np.where(M.cpu().numpy())
+        Y, Yhat = Y[ix], Yhat[ix]
+        self.SS += (Y - Y.mean()).pow(2).sum().item()
+        self.SE += (Y - Yhat).pow(2).sum().item()
+        self.log('eloss', loss.item(), on_epoch=True, on_step=False, prog_bar=True)
+        return loss
+
+    def validation_step(self, batch, _):
+        C, Y, M = batch
+        Yhat = self(C)
+        loss = F.mse_loss(Yhat * M, Y * M)
+        Y, Yhat = Y[M>0], Yhat[M>0]
+        self.SSv += (Y - Y.mean()).pow(2).sum().item()
+        self.SEv += (Y - Yhat).pow(2).sum().item()
+        self.log('vloss', loss.item(), on_epoch=True, on_step=False, prog_bar=True)
+        return loss
+
+    def on_validation_epoch_start(self):
+        self.SEv = 0.0
+        self.SSv = 0.0
+
+    def on_train_epoch_start(self):
+        self.SE = 0.0
+        self.SS = 0.0
+
+    def on_validation_epoch_end(self):
+        vr2 = 1.0 - self.SEv / self.SSv
+        self.log('vr2', vr2, on_epoch=True, on_step=False, prog_bar=True)
+
+    def on_train_epoch_end(self):
+        r2 = 1.0 - self.SE / self.SS
+        self.log('r2', r2, on_epoch=True, on_step=False, prog_bar=True)
+
+    def configure_optimizers(self):
+        opt = torch.optim.SGD(self.parameters(), lr=self.lr, momentum=0.9, weight_decay=self.wd)
+        # opt = torch.optim.Adam(self.parameters(), lr=self.lr, weight_decay=self.wd)
+        return opt
+
+
+class ResNetRegression(pl.LightningModule):
+    def __init__(self, din, dh=2, depth=3, k=3, lr=0.0003, patience=0, weight_decay=0.0, factor=2, **kwargs):
+        super().__init__()
+        self.save_hyperparameters()
+        self.din = din
+        self.patience = patience
+        self.wd = weight_decay
+        self.lr = lr
+
+        def make_block(din_, dout_, k_, act=True):
+            return nn.Sequential(
+                nn.Conv2d(din_, dout_, k_, padding='same'),
+                nn.SiLU() if act else nn.Identity(),
+            )
+        self.first = nn.Sequential(
+            make_block(din, dh, k),
+            make_batchnorm(dh, 'frn')
+        )
+        self.convs = nn.ModuleList()
+        self.acts = nn.ModuleList()
+        for _ in range(depth - 1):
+            self.convs.append(make_block(dh, dh, k))
+            self.acts.append(make_batchnorm(dh, 'frn'))
+        self.final = make_block(dh, 1, k, act=False)
+
+    def forward(self, inputs):
+        x = self.first(inputs)
+        for f, a in zip(self.convs, self.acts):
+            x = a(x + f(x))
+        return self.final(x).squeeze(1)
+
     def training_step(self, batch, _):
         C, Y, M = batch
         Yhat = self(C)

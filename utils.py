@@ -85,8 +85,13 @@ def load_training_data(
 ):
     with open(path, "rb") as io:
         data = pickle.load(io)
-    C = data["covars_rast"] # [:, weather_cols]
-    names = data["covars_names"]
+    C = data["covars_rast"]
+    # if C.shape[1] > 5:
+    #     C = C[:, [0, 2, 7, 8, 9]] # backward compat
+    if 'covars_names' in data:
+        names = data["covars_names"]
+    else:
+        names = [str(i) for i in range(C.shape[1])]
     if standardize_weather:
         C -= C.mean((0, 2, 3), keepdims=True)
         C /= C.std((0, 2, 3), keepdims=True)
@@ -117,7 +122,9 @@ def load_training_data(
         ix = np.where(M)
         Y -= Y[ix].mean()
         Y /= Y[ix].std()
-    
+
+    print("\n\n== Num. data points:", M.sum(), "\n\n")
+
     if not return_pp_data:
         return C, names, Y, M
     else:

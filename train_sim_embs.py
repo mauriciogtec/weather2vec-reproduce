@@ -97,7 +97,7 @@ def main(args: argparse.Namespace):
 
         R2 = 1.0 - np.sum((X - Xhat)**2) / np.sum((X - X.mean())**2)
         R2_test = 1.0 - np.sum((Xtest - Xtest_hat)**2) / np.sum((Xtest - Xtest.mean())**2)
-        results = dict(R2=float(R2), R2_test=float(R2_test))
+        results = dict(R2=float(R2), R2_test=float(R2_test), method=method, sim=sim)
         with open(f"{output_dir}/metrics.yaml", "w") as io:
             yaml.dump(results, io)
         logging.info(results)
@@ -148,7 +148,8 @@ def main(args: argparse.Namespace):
             devices=1,
             enable_progress_bar=args.verbose,
             max_epochs=args.epochs,
-            logger=CSVLogger(logsdir, name=f"{sim:003d}", version="")
+            logger=CSVLogger(logsdir, name=f"{sim:003d}", version=""),
+            auto_lr_find=args.auto_lr_find
         )
         trainer.fit(model, train_dataloaders=dl_train, val_dataloaders=dl_val)
 
@@ -179,6 +180,7 @@ if __name__ == "__main__":
     avail_methods = ["unet", "tsne", "pca", "crae", "cvae", "resnet"]
     parser.add_argument("--method", type=str, default="crae", choices=avail_methods)
     parser.add_argument("--silent", default=True, dest="verbose", action="store_false")
+    parser.add_argument("--manual_lr", default=True, dest="auto_lr_find", action="store_false")
     parser.add_argument("--epochs", type=int, default=300)
     args = parser.parse_args()
 
