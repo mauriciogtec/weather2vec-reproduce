@@ -37,7 +37,7 @@ def main(args: argparse.ArgumentParser):
 
     model = baselines.UNetCausalPosRegression(nd, **vars(args))
 
-    logsdir = f"{args.odir}/medicare/sim{args.masknum:03d}"
+    logsdir = f"{args.odir}/sim{args.masknum:03d}"
     trainer = pl.Trainer(
         accelerator="auto",
         devices=1,
@@ -76,7 +76,7 @@ def main(args: argparse.ArgumentParser):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--odir", type=str, default="results-medicare")
+    parser.add_argument("--odir", type=str, default="results/medicare")
     parser.add_argument("--suffix", type=str, default="")
     parser.add_argument("--num_workers", type=int, default=4)
     parser.add_argument("--factor", type=int, default=1)
