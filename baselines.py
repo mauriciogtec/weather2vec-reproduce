@@ -427,8 +427,7 @@ class UNetClassifier(pl.LightningModule):
     def training_step(self, batch, _):
         Z, A, M = batch
         logits = self.net(Z).squeeze(1)
-        ix = np.where(M.cpu().numpy())
-        logits, A = logits[ix], A[ix]
+        logits, A = logits[M > 0], A[M > 0]
         loss = F.binary_cross_entropy_with_logits(logits, A)
         with torch.no_grad():
             Ahat = torch.where(logits > 0, torch.ones_like(logits), torch.zeros_like(logits))
@@ -441,8 +440,7 @@ class UNetClassifier(pl.LightningModule):
     def validation_step(self, batch, _):
         Z, A, M = batch
         logits = self.net(Z).squeeze(1)
-        ix = np.where(M.cpu().numpy())
-        logits, A = logits[ix], A[ix]
+        logits, A = logits[M > 0], A[M > 0]
         loss = F.binary_cross_entropy_with_logits(logits, A)
         Ahat = torch.where(logits > 0, torch.ones_like(logits), torch.zeros_like(logits))
         prec, recall = precision_recall(Ahat, A.long())
@@ -1158,6 +1156,101 @@ class NSWXRegression(pl.LightningModule):
         self.SSv += (Y - self.Ymean).pow(2).sum().item()
         self.SEv += (Y - Yhat).pow(2).sum().item()
         self.log('vloss', loss.item(), on_epoch=True, on_step=False, prog_bar=True)
+        return loss
+
+    def on_validation_epoch_start(self):
+        self.SEv = 0.0
+        self.SSv = 0.0
+
+    def on_train_epoch_start(self):
+        self.SE = 0.0
+        self.SS = 0.0
+
+    def on_validation_epoch_end(self):
+        vr2 = 1.0 - self.SEv / self.SSv
+        self.log('vr2', vr2, on_epoch=True, on_step=False, prog_bar=True)
+
+    def on_train_epoch_end(self):
+        r2 = 1.0 - self.SE / self.SS
+        self.log('r2', r2, on_epoch=True, on_step=False, prog_bar=True)
+
+    def configure_optimizers(self):
+        opt = torch.optim.SGD(self.parameters(), lr=self.lr, momentum=0.9, weight_decay=self.wd)
+        # opt = torch.optim.Adam(self.parameters(), lr=self.lr, weight_decay=self.wd)
+        return opt
+
+
+class UNetCausalPosRegression(pl.LightningModule):
+    def __init__(self, din, dh=4, ffn_dh=16, depth=3, ffn_depth=2, ksize=3, lr=0.0003, dropout=0.0, patience=0, weight_decay=0.0, factor=1, fksize=1, conf_penalty=0.01, **kwargs):
+        super().__init__()
+        self.save_hyperparameters()
+        self.din = din
+        self.conf_penalty = conf_penalty
+        self.patience = patience
+        self.wd = weight_decay
+        self.lr = lr
+        self.unet = models.UNetEncoder(
+            cin=din,
+            n_hidden=dh,
+            cout=dh,
+            depth=depth,
+            ksize=ksize,
+            first_ksize=fksize,
+            num_res=0,
+            batchnorm_type="frn",
+            batchnorm=True,
+            depthwise=True,
+            # separable=True,
+            factor=factor,
+            final_act=True,
+            final_layer=False,
+            dropout=dropout
+        )
+        self.Q0 = FFNGridRegression(dh, ffn_dh, depth=ffn_depth)
+        self.Qeff = FFNGridRegression(dh, ffn_dh, depth=ffn_depth)
+        self.g = FFNGridClassifier(dh, ffn_dh, depth=ffn_depth)
+
+    def forward(self, C, A, potential_outcomes=False, logits=False):
+        # C = torch.cat([C, A.unsqueeze(1)], 1)
+        Z = self.unet(C)
+        Y0 = F.softplus(self.Q0(Z)).squeeze(1)
+        delta = F.softplus(self.Qeff(Z)).squeeze(1) 
+        Yhat = Y0 + A * delta
+        if not potential_outcomes and not logits:
+            return Yhat
+        else:
+            out = [Yhat]
+            if potential_outcomes:
+                out.extend([Y0, Y0 + delta])
+            if logits:
+                out.append(self.g(Z))
+            return out
+
+    def training_step(self, batch, _):
+        C, A, Y, M = batch
+        Yhat, logits = self(C, A, logits=True)
+        Y, Yhat, A, logits = [u[M > 0] for u in (Y, Yhat, A, logits)]
+        loss_mse = F.mse_loss(Yhat, Y)
+        E0, E1 = Yhat[A == 0.].mean(), Yhat[A > 0.].mean()
+        meff = (E1 - E0) #* (E1 - E0 > -0.01)
+        # ite = (Y1 - Y0) * (Y1 - Y0 < 0)
+        loss_conf = self.conf_penalty * meff #- ite.mean()
+        loss_g = F.binary_cross_entropy_with_logits(logits, A)
+        loss = loss_mse + loss_conf + loss_g
+        self.SS += Y.pow(2).sum().item() # assumes Y is centered
+        self.SE += (Y - Yhat).pow(2).sum().item()
+        rmse_pct= loss_mse.pow(0.5).item()
+        self.log('rmse', rmse_pct, on_epoch=True, on_step=False, prog_bar=True)
+        return loss
+
+    def validation_step(self, batch, _):
+        C, A, Y, M = batch
+        Yhat = self(C, A)
+        Y, Yhat = Y[M>0], Yhat[M>0]
+        loss = F.mse_loss(Yhat, Y)
+        self.SSv += Y.pow(2).sum().item() # assumes Y is centered
+        self.SEv += (Y - Yhat).pow(2).sum().item()
+        self.log('vrmse', np.sqrt(loss.item()), on_epoch=True, on_step=False, prog_bar=True)
         return loss
 
     def on_validation_epoch_start(self):

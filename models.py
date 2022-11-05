@@ -40,14 +40,15 @@ def conv_block(
     batchnorm: bool = False,
     separable: bool = False,
     batchnorm_type: str = "bn",
-    **kwargs
+    dropout: float = 0.0,
+    **_
 ):
-
+    kwargs = dict()
     if not depthwise:
         d1 = din // 4 if bottleneck else din
         kwargs = kwargs.copy()
         kwargs["bias"] = True # (not batchnorm)
-        batchnorm = True # (not batchnorm)
+        kwargs["padding"] = "same"
         mods = []
         mods.append(nn.Conv2d(d1, dout, k, **kwargs))
         if batchnorm:
@@ -63,10 +64,10 @@ def conv_block(
         kwargs2 = kwargs.copy()
         kwargs3 = kwargs.copy()
         kwargs["groups"] = din
-        kwargs["padding"] = [0, k//2]
+        kwargs["padding"] = "same"
         kwargs["bias"] = True
         kwargs2["groups"] = din
-        kwargs2["padding"] = [k//2, 0]
+        kwargs2["padding"] = "same"
         kwargs2["bias"] = False
         kwargs3["groups"] = 1
         kwargs3["padding"] = 0
@@ -95,6 +96,8 @@ def conv_block(
         if batchnorm:
             mods.append(make_batchnorm(dout, batchnorm_type))
         mods.append(act())
+    if dropout > 0:
+        mods.append(nn.Dropout2d(dropout))
     mod = nn.Sequential(*mods)
     return mod
 
@@ -216,6 +219,7 @@ class UNetEncoder(nn.Module):
         cin,
         cout,
         ksize=3,
+        first_ksize=3,
         depth=3,
         num_res=1,
         groups: int = 1,
@@ -229,7 +233,8 @@ class UNetEncoder(nn.Module):
         separable: bool = False,
         batchnorm: bool = False,
         batchnorm_type: str = "bn",
-        final_act: bool = False
+        final_act: bool = False,
+        final_layer: bool = True,
     ) -> None:
         super().__init__()
         self.cin = cin
@@ -249,12 +254,13 @@ class UNetEncoder(nn.Module):
             bias=True,
             groups=groups,
             padding="same",
-            padding_mode="replicate",
+            # padding_mode="replicate",
             bottleneck=bottleneck,
             depthwise=depthwise,
             separable=separable,
             batchnorm=batchnorm,
             batchnorm_type=batchnorm_type,
+            dropout=dropout,
             factor=factor
         )
 
@@ -262,9 +268,10 @@ class UNetEncoder(nn.Module):
         kwargs1 = kwargs.copy()
         kwargs1["groups"] = 1
         self.first = nn.Sequential(
-            nn.Conv2d(cin, d, k, padding="same"),
-            make_batchnorm(d, batchnorm_type),
-            act(),
+            # nn.Conv2d(cin, d, first_ksize, padding="same"),
+            # make_batchnorm(d, batchnorm_type),
+            # act(),
+            conv_block(cin, d, first_ksize, **kwargs),
             res_layers(d, num_res, k, act, **kwargs)
         )
 
@@ -285,18 +292,21 @@ class UNetEncoder(nn.Module):
 
         kwargsf = kwargs.copy()
         kwargsf["groups"] = 1
-        self.final = nn.Sequential(
-            res_layers(d, num_res, k, act, **kwargs),
-            nn.Conv2d(d, cout, k, padding="same"),
-            nn.SiLU() if final_act else nn.Identity()
-            # conv_block(d, cout, k, **kwargsf)
-        )
-        self.apply(self._init_weights)
+        if final_layer:
+            self.final = nn.Sequential(
+                res_layers(d, num_res, k, act, **kwargs),
+                nn.Conv2d(d, cout, first_ksize, padding="same"),
+                nn.SiLU() if final_act else nn.Identity()
+                # conv_block(d, cout, k, **kwargsf)
+            )
+        else:
+            self.final = nn.Identity()
+        # self.apply(self._init_weights)
 
-    def _init_weights(self, m):
-        if isinstance(m, (nn.Conv2d, nn.Linear)):
-            trunc_normal_(m.weight, std=.02)
-            nn.init.constant_(m.bias, 0)
+    # def _init_weights(self, m):
+    #     if isinstance(m, (nn.Conv2d, nn.Linear)):
+    #         trunc_normal_(m.weight, std=.02)
+    #         nn.init.constant_(m.bias, 0)
 
     def forward(self, inputs: Tensor):
         x = inputs

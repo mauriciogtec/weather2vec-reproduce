@@ -8,37 +8,33 @@
 #SBATCH --mem 32G
 #SBATCH --gres gpu:1
 #SBATCH --array 0-4
-#SBATCH -o ./slurm/sim-effs4.%a.out
+#SBATCH -o ./slurm/sim-effs4d.%a.out
 
 #
 source ~/.bashrc
 conda activate cuda116
 
-# python train_sim_effects.py --embsdir results-sim4 --silent --sim $((2*SLURM_ARRAY_TASK_ID)) --method pca &
-# python train_sim_effects.py --embsdir results-sim4 --silent --sim $((2*SLURM_ARRAY_TASK_ID)) --method tsne &
-# python train_sim_effects.py --embsdir results-sim4 --silent --sim $((2*SLURM_ARRAY_TASK_ID)) --method crae &
-# python train_sim_effects.py --embsdir results-sim4 --silent --sim $((2*SLURM_ARRAY_TASK_ID)) --method cvae &
-# python train_sim_effects.py --embsdir results-sim4 --silent --sim $((2*SLURM_ARRAY_TASK_ID)) --method unet &
-# python train_sim_effects.py --embsdir results-sim4 --silent --sim $((2*SLURM_ARRAY_TASK_ID)) --method resnet &
-# python train_sim_effects.py --embsdir results-sim4 --silent --sim $((2*SLURM_ARRAY_TASK_ID)) --method local &
-# python train_sim_effects.py --embsdir results-sim4 --silent --sim $((2*SLURM_ARRAY_TASK_ID)) --method avg &
-# python train_sim_effects.py --embsdir results-sim4 --silent --sim $((2*SLURM_ARRAY_TASK_ID)) --method wx &
-# python train_sim_effects.py --embsdir results-sim4 --silent --sim $((2*SLURM_ARRAY_TASK_ID)) --method resnet_sup &
-# python train_sim_effects.py --embsdir results-sim4 --silent --sim $((2*SLURM_ARRAY_TASK_ID)) --method unet_sup &
-# python train_sim_effects.py --embsdir results-sim4 --silent --sim $((2*SLURM_ARRAY_TASK_ID)) --method unet_sup_car &
-# python train_sim_effects.py --embsdir results-sim4 --silent --sim $((2*SLURM_ARRAY_TASK_ID)) --method car &
-# wait 
-python train_sim_effects.py --embsdir results-sim4 --silent --sim $((2*SLURM_ARRAY_TASK_ID + 1)) --method pca &
-python train_sim_effects.py --embsdir results-sim4 --silent --sim $((2*SLURM_ARRAY_TASK_ID + 1)) --method tsne &
-python train_sim_effects.py --embsdir results-sim4 --silent --sim $((2*SLURM_ARRAY_TASK_ID + 1)) --method crae &
-python train_sim_effects.py --embsdir results-sim4 --silent --sim $((2*SLURM_ARRAY_TASK_ID + 1)) --method cvae &
-python train_sim_effects.py --embsdir results-sim4 --silent --sim $((2*SLURM_ARRAY_TASK_ID + 1)) --method unet &
-python train_sim_effects.py --embsdir results-sim4 --silent --sim $((2*SLURM_ARRAY_TASK_ID + 1)) --method resnet &
-python train_sim_effects.py --embsdir results-sim4 --silent --sim $((2*SLURM_ARRAY_TASK_ID + 1)) --method local &
-python train_sim_effects.py --embsdir results-sim4 --silent --sim $((2*SLURM_ARRAY_TASK_ID + 1)) --method avg &
-python train_sim_effects.py --embsdir results-sim4 --silent --sim $((2*SLURM_ARRAY_TASK_ID + 1)) --method wx &
-python train_sim_effects.py --embsdir results-sim4 --silent --sim $((2*SLURM_ARRAY_TASK_ID + 1)) --method resnet_sup &
-python train_sim_effects.py --embsdir results-sim4 --silent --sim $((2*SLURM_ARRAY_TASK_ID + 1)) --method unet_sup &
-python train_sim_effects.py --embsdir results-sim4 --silent --sim $((2*SLURM_ARRAY_TASK_ID + 1)) --method unet_sup_car &
-python train_sim_effects.py --embsdir results-sim4 --silent --sim $((2*SLURM_ARRAY_TASK_ID + 1)) --method car &
-wait
+
+for sparse in "" "--sparse"
+do
+    for task in "nonlinear" "basic"
+    do
+        for i in 0 1
+        do
+            python train_sim_effects.py $sparse --task=$task --embsdir results-sim6 --silent --sim $((2*SLURM_ARRAY_TASK_ID + i)) --method pca &
+            python train_sim_effects.py $sparse --task=$task --embsdir results-sim6 --silent --sim $((2*SLURM_ARRAY_TASK_ID + i)) --method tsne &
+            python train_sim_effects.py $sparse --task=$task --embsdir results-sim6 --silent --sim $((2*SLURM_ARRAY_TASK_ID + i)) --method crae &
+            python train_sim_effects.py $sparse --task=$task --embsdir results-sim6 --silent --sim $((2*SLURM_ARRAY_TASK_ID + i)) --method cvae &
+            python train_sim_effects.py $sparse --task=$task --embsdir results-sim6 --silent --sim $((2*SLURM_ARRAY_TASK_ID + i)) --method unet &
+            python train_sim_effects.py $sparse --task=$task --embsdir results-sim6 --silent --sim $((2*SLURM_ARRAY_TASK_ID + i)) --method resnet &
+            python train_sim_effects.py $sparse --task=$task --embsdir results-sim6 --silent --sim $((2*SLURM_ARRAY_TASK_ID + i)) --method local &
+            python train_sim_effects.py $sparse --task=$task --embsdir results-sim6 --silent --sim $((2*SLURM_ARRAY_TASK_ID + i)) --method avg &
+            python train_sim_effects.py $sparse --task=$task --embsdir results-sim6 --silent --sim $((2*SLURM_ARRAY_TASK_ID + i)) --method causal_wx &
+            python train_sim_effects.py $sparse --task=$task --embsdir results-sim6 --silent --sim $((2*SLURM_ARRAY_TASK_ID + i)) --method resnet_sup &
+            python train_sim_effects.py $sparse --task=$task --embsdir results-sim6 --silent --sim $((2*SLURM_ARRAY_TASK_ID + i)) --method unet_sup &
+            python train_sim_effects.py $sparse --task=$task --embsdir results-sim6 --silent --sim $((2*SLURM_ARRAY_TASK_ID + i)) --method unet_sup_car &
+            python train_sim_effects.py $sparse --task=$task --embsdir results-sim6 --silent --sim $((2*SLURM_ARRAY_TASK_ID + i)) --method car &
+            wait
+        done
+    done
+done

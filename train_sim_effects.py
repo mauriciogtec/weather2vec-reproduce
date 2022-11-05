@@ -52,7 +52,7 @@ def main(args: argparse.Namespace):
     if method == "causal_wx":
         model = baselines.CausalWXRegression(nd, ksize, **vars(args))
     elif method == "unet_sup":
-        model = baselines.UNetClassifier(nd, depth=1, dh=8, k=3, **vars(args))
+        model = baselines.UNetClassifier(nd, depth=1, dh=8, k=3, factor=1, **vars(args))
     elif method == "unet_sup_car":
         model = baselines.UNetCARClassifier(nr, nc, nd, depth=1, dh=4, k=3, **vars(args))
     elif method == "resnet_sup":
@@ -144,7 +144,7 @@ if __name__ == "__main__":
     parser.add_argument("--num_workers", type=int, default=4)
     avail_methods = ["tsne", "pca", "crae", "cvae", "unet_sup", "unet_sup_car",
                      "resnet_sup", "wx", "causal_wx", "unet", "local", "avg", "car", "resnet"]
-    parser.add_argument("--method", type=str, default="pca", choices=avail_methods)
+    parser.add_argument("--method", type=str, default="unet_sup", choices=avail_methods)
     parser.add_argument("--silent", default=True, dest="verbose", action="store_false")
     parser.add_argument("--sparse", default=False, action="store_true")
     parser.add_argument("--manual_lr", default=True, dest="auto_lr_find", action="store_false")
