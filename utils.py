@@ -140,7 +140,7 @@ def yearly(x):
     return out
 
 
-def load_medicare_data(path:str = "data/medicare", masknum:int = 0):
+def load_medicare_data(path:str = "data/medicare", masknum:int = 0, pm25_cutoff:float=12):
     # load medicare
     r = rasterio.open(f"{path}/medicare.tif")
     lnames = np.loadtxt(f"{path}/medicare_names.txt", dtype=str)
@@ -159,8 +159,8 @@ def load_medicare_data(path:str = "data/medicare", masknum:int = 0):
     ixs = np.array([layer2ix[c] for c in Cnames])
     C = g[ixs]
     Cmask = (~nodata)[ixs]
-    Pollution = g[layer2ix["qd_mean_pm25"]]
-    A = (Pollution > 12.0)  # based on Makar et al. 2018
+    P = g[layer2ix["qd_mean_pm25"]]
+    A = (P > pm25_cutoff)  # based on Makar et al. 2018
     for j in range(len(ixs)):
         CMj = C[j][Cmask[j]]
         mu, sig = CMj.mean(), CMj.std()
@@ -174,4 +174,4 @@ def load_medicare_data(path:str = "data/medicare", masknum:int = 0):
     Mtest = np.zeros_like(M)
     Mtest[which_test] = 1
 
-    return C, A, Y, M, Mtrain, Mtest
+    return C, A, Y, M, Mtrain, Mtest, P

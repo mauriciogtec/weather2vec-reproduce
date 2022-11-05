@@ -1181,7 +1181,7 @@ class NSWXRegression(pl.LightningModule):
 
 
 class UNetCausalPosRegression(pl.LightningModule):
-    def __init__(self, din, dh=4, ffn_dh=16, depth=3, ffn_depth=2, ksize=3, lr=0.0003, dropout=0.0, patience=0, weight_decay=0.0, factor=1, fksize=1, conf_penalty=0.01, **kwargs):
+    def __init__(self, din, dh=4, ffn_dh=16, depth=3, ffn_depth=2, ksize=3, lr=0.0003, dropout=0.0, patience=0, weight_decay=0.0, factor=1, fksize=1, conf_penalty=0.01, momentum=0.9, **kwargs):
         super().__init__()
         self.save_hyperparameters()
         self.din = din
@@ -1189,6 +1189,7 @@ class UNetCausalPosRegression(pl.LightningModule):
         self.patience = patience
         self.wd = weight_decay
         self.lr = lr
+        self.momentum = momentum
         self.unet = models.UNetEncoder(
             cin=din,
             n_hidden=dh,
@@ -1270,6 +1271,6 @@ class UNetCausalPosRegression(pl.LightningModule):
         self.log('r2', r2, on_epoch=True, on_step=False, prog_bar=True)
 
     def configure_optimizers(self):
-        opt = torch.optim.SGD(self.parameters(), lr=self.lr, momentum=0.9, weight_decay=self.wd)
+        opt = torch.optim.SGD(self.parameters(), lr=self.lr, momentum=self.momentum, weight_decay=self.wd)
         # opt = torch.optim.Adam(self.parameters(), lr=self.lr, weight_decay=self.wd)
         return opt

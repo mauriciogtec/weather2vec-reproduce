@@ -1,7 +1,6 @@
 import argparse
 import yaml
 import logging
-import rasterio
 # from sklearn.model_selection import train_test_split
 
 import numpy as np
@@ -16,7 +15,7 @@ from utils import load_medicare_data
 
 def main(args: argparse.ArgumentParser):
     pl.seed_everything(args.seed)
-    C, A, Y, M, Mtrain, Mtest = load_medicare_data("data/medicare", args.masknum)
+    C, A, Y, M, Mtrain, Mtest, _ = load_medicare_data("data/medicare", args.masknum)
     C, A, Y = [torch.FloatTensor(u[None]) for u in (C, A, Y)]
     nd = C.shape[1]
     Ctrain, Ctest = C, C
@@ -91,10 +90,10 @@ if __name__ == "__main__":
     parser.add_argument("--ffn_dh", type=int, default=8)
     parser.add_argument("--dropout", type=float, default=0.0)
     parser.add_argument("--conf_penalty", type=float, default=0.001)
-    parser.add_argument("--seed", type=int, default=1234)
+    parser.add_argument("--seed", type=int, default=123456)
     parser.add_argument("--lr", type=float, default=0.03)
-    parser.add_argument("--weight_decay", type=float, default=0.0001)
-    # parser.add_argument("--direct", action="store_true", default=True)
+    parser.add_argument("--momentum", type=float, default=0.9)
+    parser.add_argument("--weight_decay", type=float, default=0.001)
     parser.add_argument("--auto_lr_find", default=False, action="store_true")
     parser.add_argument("--silent", default=True, dest="verbose", action="store_false")
     args = parser.parse_args()
