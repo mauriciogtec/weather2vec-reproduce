@@ -123,8 +123,6 @@ def load_training_data(
         Y -= Y[ix].mean()
         Y /= Y[ix].std()
 
-    print("\n\n== Num. data points:", M.sum(), "\n\n")
-
     if not return_pp_data:
         return C, names, Y, M
     else:

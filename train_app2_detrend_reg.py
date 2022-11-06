@@ -76,13 +76,13 @@ def main(args: argparse.ArgumentParser):
     else:
         pass
 
-    logsdir = f"{args.odir}/detrending"
+    logsdir = f"{args.odir}/time_reg"
     trainer = pl.Trainer(
         accelerator="auto",
         devices=1,
         enable_progress_bar=args.verbose,
         max_epochs=args.epochs,
-        logger=CSVLogger(logsdir, name=f"time_reg", version=args.suffix),
+        logger=CSVLogger(logsdir, name=f"depth{args.depth}", version=args.suffix),
         auto_lr_find=args.auto_lr_find
     )
     trainer.fit(model, train_dataloaders=dltrain, val_dataloaders=dlval)
@@ -92,16 +92,16 @@ def main(args: argparse.ArgumentParser):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--datapath", type=str, default="data/training_data.pkl")
-    parser.add_argument("--odir", type=str, default="results-rf")
+    parser.add_argument("--odir", type=str, default="results")
     parser.add_argument("--suffix", type=str, default="")
     parser.add_argument("--num_workers", type=int, default=4)
-    parser.add_argument("--epochs", type=int, default=300)
+    parser.add_argument("--epochs", type=int, default=500)
     parser.add_argument("--batch_size", type=int, default=4)
-    parser.add_argument("--dh", type=int, default=10)
+    parser.add_argument("--dh", type=int, default=32)
     parser.add_argument("--depth", type=int, default=3)
     parser.add_argument("--seed", type=int, default=123456)
     parser.add_argument("--lr", type=float, default=0.01)
-    parser.add_argument("--weight_decay", type=float, default=0.001)
+    parser.add_argument("--weight_decay", type=float, default=0.0001)
     parser.add_argument("--test-range", default=[0, 12], type=int)
     parser.add_argument("--train-range", default=[12, 72], type=int)
     parser.add_argument("--random_test_split", action="store_true", default=False)
