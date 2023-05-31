@@ -18,3 +18,4 @@ datasets/
 checkpoints/
 real/
 unet/
+.Rproj.user
