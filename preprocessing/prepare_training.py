@@ -19,7 +19,7 @@ for y in years:
 rasts = []
 msks = []
 for ym in yms:
-    fpath = f"./data/SO4/tif/{ym}.tif"
+    fpath = f"./data/SO4/processed/{ym}.tif"
     with rasterio.open(fpath) as src:
         msk = src.read_masks()
         msk = (msk > 0).astype(np.float32)
@@ -40,7 +40,7 @@ X = (X - X.min()) / (X.max() - X.min())
 rasts = []
 msks = []
 for ym in yms:
-    fpath = f"./data/weather/{ym}.tif"
+    fpath = f"./data/weather/processed/{ym}.tif"
     with rasterio.open(fpath) as src:
         msk = src.read_masks()
         msk = (msk > 0).astype(np.float32)
@@ -92,7 +92,7 @@ pp_ymtot = (
 )
 # pp_ymtot.plot("ym", "so2_tons", figsize=(12, 6))
 #%%
-with open("data/weather_names.csv", "r") as f:
+with open("data/weather/weather_names.csv", "r") as f:
     wn = f.read().splitlines()[1:]
 
 traindata = dict(

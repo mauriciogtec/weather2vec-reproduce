@@ -1,5 +1,6 @@
 .vscode/
 wandb/
+*.sif
 **/__pycache__
 simulations/
 conda/
@@ -10,4 +11,11 @@ data/
 dapsm/
 conda-env/
 **/*.ps1
+nohup*
+results*
+slurm/
+datasets/
+checkpoints/
+real/
+unet/
 .Rproj.user

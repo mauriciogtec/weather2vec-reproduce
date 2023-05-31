@@ -27,7 +27,7 @@ crs_wgs84=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs")
 # this should be done in the download data module
 # Find asc rasters  
 
-datadir = "./data/SO4"
+datadir = "./data/SO4/ASCII"
 paths = list.files(
   datadir,
   pattern = "asc.zip$",
@@ -90,7 +90,7 @@ parLapply(
       print(paste("    writing to", paste(datadir, "tif", tgt_file, sep="/")))
       raster::writeRaster(rast, paste(datadir, "tif", tgt_file, sep="/"), overwrite=TRUE)
       rm(rast)
-      file.remove(paste(datadir, "tif", p, sep="/"))
+      file.remove(paste(datadir, "processed", p, sep="/"))
     }
   # }, cl=cl
   }

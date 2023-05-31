@@ -14,7 +14,7 @@ library(ncdf4)
 # download the necessary met files, 20th century reanalysis
 downloader.fn <- function(filename){
   
-  fileloc <- file.path('.', 'data', 'WindData')
+  fileloc <- file.path('.', 'data', 'weather', 'NARRData')
   
   # create directory to store in
   dir.create(fileloc, 
@@ -179,5 +179,5 @@ for (y in years) {
   }
 }
 
-saveRDS(controls, "data/weather.rds")
-readr::write_csv(as.data.frame(layer.names), "data/weather_names.csv")
+saveRDS(controls, "data/weather/weather.rds")
+readr::write_csv(as.data.frame(layer.names), "data/weather/weather_names.csv")

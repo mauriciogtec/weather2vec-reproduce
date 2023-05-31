@@ -1,0 +1,8 @@
+ksize: 13
+nonlinear: false
+nplots: 3
+nsims: 10
+output_dir: simulations/basic
+seed: 110104
+spatial: false
+verbose: true

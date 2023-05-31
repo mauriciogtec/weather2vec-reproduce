@@ -1,5 +1,5 @@
 import os
-import sys
+import rasterio
 from typing import Optional
 import numpy as np
 import random
@@ -85,8 +85,13 @@ def load_training_data(
 ):
     with open(path, "rb") as io:
         data = pickle.load(io)
-    C = data["covars_rast"] # [:, weather_cols]
-    names = data["covars_names"]
+    C = data["covars_rast"]
+    # if C.shape[1] > 5:
+    #     C = C[:, [0, 2, 7, 8, 9]] # backward compat
+    if 'covars_names' in data:
+        names = data["covars_names"]
+    else:
+        names = [str(i) for i in range(C.shape[1])]
     if standardize_weather:
         C -= C.mean((0, 2, 3), keepdims=True)
         C /= C.std((0, 2, 3), keepdims=True)
@@ -117,7 +122,7 @@ def load_training_data(
         ix = np.where(M)
         Y -= Y[ix].mean()
         Y /= Y[ix].std()
-    
+
     if not return_pp_data:
         return C, names, Y, M
     else:
@@ -131,3 +136,40 @@ def yearly(x):
         out[i] = x[(i * 12):min((i + 1) * 12, len(x))].mean()
     out[-1] = out[-2]
     return out
+
+
+def load_medicare_data(path:str = "data/medicare", masknum:int = 0, pm25_cutoff:float=12):
+    # load medicare
+    r = rasterio.open(f"{path}/medicare.tif")
+    lnames = np.loadtxt(f"{path}/medicare_names.txt", dtype=str)
+    layer2ix = {c: i for i, c in enumerate(lnames)}
+    g = r.read()
+    nodata = (g == (r.nodata))
+    g[nodata] = np.nan
+    i_y = layer2ix["cms_mortality_pct"]
+    g[nodata] = 0.0
+    Y = g[i_y]
+    M = (~nodata[i_y])[None]
+    Cnames = [
+        c for c in lnames if
+        any([c.startswith(u) for u in ("cs_", "cdc_", "gmet")])
+    ]
+    ixs = np.array([layer2ix[c] for c in Cnames])
+    C = g[ixs]
+    Cmask = (~nodata)[ixs]
+    P = g[layer2ix["qd_mean_pm25"]]
+    A = (P > pm25_cutoff)  # based on Makar et al. 2018
+    for j in range(len(ixs)):
+        CMj = C[j][Cmask[j]]
+        mu, sig = CMj.mean(), CMj.std()
+        C[j] = (C[j] - mu) / sig
+
+    hm = rasterio.open(f"{path}/holdout_masks/{masknum:03d}.tif")
+    HM = hm.read()
+    which_test = np.where((HM == 1) & (HM != hm.nodata))
+    Mtrain = M.copy()
+    Mtrain[which_test] = 0  
+    Mtest = np.zeros_like(M)
+    Mtest[which_test] = 1
+
+    return C, A, Y, M, Mtrain, Mtest, P
